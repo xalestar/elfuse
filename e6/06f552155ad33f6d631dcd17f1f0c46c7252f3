@@ -1,0 +1,67 @@
+Makefile
+  s_28ce217065b2fb::t_c644daa367ad37 401-407
+  s_28ce217065b2fb::t_da0d9cafd893d2 400
+src/syscall/internal.h
+  s_28ce217065b2fb::t_265d9c11ca027f 144
+src/syscall/wakeup-pipe.h
+  s_28ce217065b2fb::t_e793f13bc39be0 13-18
+  s_28ce217065b2fb::t_ff64c102c32d35 11-12,23-24,43-49,51-52,56-60
+  s_91c3bf169c1104::t_a82a8bc3d1db72 50,53,61
+  s_91c3bf169c1104::t_19d2d767d1109a 54-55
+src/syscall/time.c
+  s_91c3bf169c1104::t_a82a8bc3d1db72 134
+  s_28ce217065b2fb::t_9354de8169e96f 147-148,171-172
+  s_91c3bf169c1104::t_112f4991e1db2d 178
+  s_28ce217065b2fb::t_924466829d08d7 189
+  s_28ce217065b2fb::t_fabbc2564b014d 129-132
+  s_28ce217065b2fb::t_4abde01b1baf35 30,121-124,133,153,174,179,184-187,190
+  s_28ce217065b2fb::t_e793f13bc39be0 180-183
+  s_28ce217065b2fb::t_5fbed10dcec41d 125-127,135-146,149-152,154,173,175-177,188
+tests/test-wakeup-pipe-host.c
+  s_91c3bf169c1104::t_19d2d767d1109a 12-14,122-123
+  s_91c3bf169c1104::t_a82a8bc3d1db72 107,109,112,117-118,125
+  s_28ce217065b2fb::t_fabbc2564b014d 57-58
+  s_28ce217065b2fb::t_924466829d08d7 121,124,132
+  s_28ce217065b2fb::t_f65edc37507e58 137
+  s_28ce217065b2fb::t_f468a93ea5c06c 11,22,50-56,59-67,108,110-111,113-116,119-120,126-131,133-136
+tests/test-matrix.sh
+  s_28ce217065b2fb::t_7cedcfd5a9f84a 723-724
+src/syscall/wakeup-pipe.c
+  s_28ce217065b2fb::t_4abde01b1baf35 17
+  s_28ce217065b2fb::t_6cd3b7efd91982 14,32,39-45,47,70-71,73-76,78,80-81,83-86,90-96,99-100
+  s_91c3bf169c1104::t_19d2d767d1109a 29-31
+  s_91c3bf169c1104::t_a82a8bc3d1db72 46,72,77,79,82
+  s_28ce217065b2fb::t_bd89999e46f1cc 33-38
+  s_91c3bf169c1104::t_a7adb3ba2b60a5 97-98
+  s_28ce217065b2fb::t_fabbc2564b014d 87-89
+tests/test-nanosleep-signal-latency.c
+  s_28ce217065b2fb::t_e793f13bc39be0 10-13
+  s_28ce217065b2fb::t_fabbc2564b014d 115,170
+  s_28ce217065b2fb::t_924466829d08d7 29-30,48-50,52-58,69-70,108-109,121-128,138-139,144-146,148-157,159-162,174-179
+  s_28ce217065b2fb::t_ee6e34f50678ab 1-9,14-28,31-47,51,59-68,71-107,110-114,116-120,129-137,147,158,163-169,171-173,180-207
+  s_28ce217065b2fb::t_964adb03f11fd7 140-143
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e606f552155ad33f6d631dcd17f1f0c46c7252f3",
+  "prompts": {},
+  "sessions": {
+    "s_28ce217065b2fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6ca7e93f-aa90-455a-abfc-0f5cee4a9e83",
+        "model": "unknown"
+      },
+      "human_author": "xalestar <alex.h.r.lin@gmail.com>"
+    },
+    "s_91c3bf169c1104": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1e4b5b47-abf4-4c6d-9f99-263f904def1c",
+        "model": "claude-opus-5"
+      },
+      "human_author": null
+    }
+  }
+}

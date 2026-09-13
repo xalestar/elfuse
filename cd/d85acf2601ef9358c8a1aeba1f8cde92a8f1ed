@@ -1,0 +1,19 @@
+src/syscall/signal.c
+  s_da737cb9cf48e4::t_efaa0b3d8d2efe 1627-1648,1703
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "cdd85acf2601ef9358c8a1aeba1f8cde92a8f1ed",
+  "prompts": {},
+  "sessions": {
+    "s_da737cb9cf48e4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1ed9c592-028b-4ea9-9901-0ad6a3c301c1",
+        "model": "claude-opus-5"
+      },
+      "human_author": "xalestar <alex.h.r.lin@gmail.com>"
+    }
+  }
+}

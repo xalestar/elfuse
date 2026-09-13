@@ -1,0 +1,86 @@
+src/syscall/time.c
+  s_28ce217065b2fb::t_e793f13bc39be0 179-182
+  s_91c3bf169c1104::t_112f4991e1db2d 177
+  s_28ce217065b2fb::t_924466829d08d7 188
+  s_28ce217065b2fb::t_9354de8169e96f 170-171
+  s_28ce217065b2fb::t_5fbed10dcec41d 125-127,135-149,151-153,172,174-176,187
+  s_28ce217065b2fb::t_4abde01b1baf35 30,121-124,133,150,173,178,183-186,189
+  s_28ce217065b2fb::t_fabbc2564b014d 129-132
+  s_91c3bf169c1104::t_a82a8bc3d1db72 134
+tests/test-nanosleep-signal-latency.c
+  s_28ce217065b2fb::t_e793f13bc39be0 10-13
+  s_28ce217065b2fb::t_fabbc2564b014d 120,184
+  s_da737cb9cf48e4::t_e2f4a4122e6167 59-61
+  s_28ce217065b2fb::t_ee6e34f50678ab 1-9,14-28,31-47,51,62-71,74-112,115-119,121-125,135-151,161,172,177-183,185-187,194-221
+  s_28ce217065b2fb::t_924466829d08d7 29-30,48-50,52-58,72-73,113-114,126-134,152-153,158-160,162-171,173-176,188-193
+  s_28ce217065b2fb::t_964adb03f11fd7 154-157
+src/syscall/signal.h
+  s_da737cb9cf48e4::t_5d1a86763f53bd 450-457
+tests/test-matrix.sh
+  s_28ce217065b2fb::t_7cedcfd5a9f84a 723-724
+  s_da737cb9cf48e4::t_8f730705b916a7 725-726
+src/syscall/wakeup-pipe.c
+  s_91c3bf169c1104::t_a7adb3ba2b60a5 97-98
+  s_91c3bf169c1104::t_19d2d767d1109a 29-31
+  s_28ce217065b2fb::t_4abde01b1baf35 17
+  s_28ce217065b2fb::t_fabbc2564b014d 87-89
+  s_28ce217065b2fb::t_6cd3b7efd91982 14,32,39-45,47,70-71,73-76,78,80-81,83-86,90-96,99-100
+  s_28ce217065b2fb::t_bd89999e46f1cc 33-38
+  s_91c3bf169c1104::t_a82a8bc3d1db72 46,72,77,79,82
+src/syscall/internal.h
+  s_28ce217065b2fb::t_265d9c11ca027f 144
+tests/test-wakeup-pipe-host.c
+  s_28ce217065b2fb::t_f468a93ea5c06c 11,22,50-56,59-67,108,110-111,113-116,119-120,126-131,133-143
+  s_91c3bf169c1104::t_19d2d767d1109a 12-14,122-123
+  s_28ce217065b2fb::t_fabbc2564b014d 57-58
+  s_28ce217065b2fb::t_f65edc37507e58 144
+  s_91c3bf169c1104::t_a82a8bc3d1db72 107,109,112,117-118,125
+  s_28ce217065b2fb::t_924466829d08d7 121,124,132
+src/syscall/wakeup-pipe.h
+  s_91c3bf169c1104::t_19d2d767d1109a 54-55
+  s_28ce217065b2fb::t_e793f13bc39be0 13-18
+  s_28ce217065b2fb::t_ff64c102c32d35 11-12,23-24,43-49,51-52,56-60
+  s_91c3bf169c1104::t_a82a8bc3d1db72 50,53,61
+tests/test-nanosleep-process-signal.c
+  s_da737cb9cf48e4::t_fef95e2e405ec2 29,69-70,72-76,80-86,106-107,115-148
+  s_da737cb9cf48e4::t_11a9171b6f58a8 65-68
+  s_da737cb9cf48e4::t_feabf9e3e68ffc 1-28,30-64,71,77-79,87-105,108-114,149-162
+src/syscall/signal.c
+  s_da737cb9cf48e4::t_f1ee16d90c5c2d 1649-1665
+Makefile
+  s_28ce217065b2fb::t_da0d9cafd893d2 400
+  s_da737cb9cf48e4::t_e385109e881c00 408-412
+  s_28ce217065b2fb::t_c644daa367ad37 401-407,413-414
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "76ba1ad0c55c0241bf2fb2eda4a6bce0f34541b2",
+  "prompts": {},
+  "sessions": {
+    "s_28ce217065b2fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6ca7e93f-aa90-455a-abfc-0f5cee4a9e83",
+        "model": "unknown"
+      },
+      "human_author": "xalestar <alex.h.r.lin@gmail.com>"
+    },
+    "s_91c3bf169c1104": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1e4b5b47-abf4-4c6d-9f99-263f904def1c",
+        "model": "claude-opus-5"
+      },
+      "human_author": null
+    },
+    "s_da737cb9cf48e4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1ed9c592-028b-4ea9-9901-0ad6a3c301c1",
+        "model": "claude-opus-5"
+      },
+      "human_author": null
+    }
+  }
+}

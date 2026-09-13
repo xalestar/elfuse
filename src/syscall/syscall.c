@@ -1034,6 +1034,17 @@ static int kill_deliver_targets(const proc_signal_target_t *targets,
     return delivered;
 }
 
+/* Resolve a guest pid for kill(2). The child table answers for descendants.
+ * Every other member of the fork family, the caller's own parent above all,
+ * exists only in the namespace registry, the same source the group and
+ * broadcast forms already read.
+ */
+static pid_t kill_resolve_host_pid(int64_t gpid)
+{
+    pid_t hpid = proc_guest_to_host_pid(gpid);
+    return hpid > 0 ? hpid : proc_namespace_host_pid(gpid);
+}
+
 static int64_t sc_kill(guest_t *g,
                        uint64_t x0,
                        uint64_t x1,
@@ -1083,7 +1094,7 @@ static int64_t sc_kill(guest_t *g,
         }
         int64_t r = (pid == (int) our_pid) ? 0 : -LINUX_ESRCH;
         if (r == -LINUX_ESRCH) {
-            pid_t hpid = proc_guest_to_host_pid((int64_t) pid);
+            pid_t hpid = kill_resolve_host_pid((int64_t) pid);
             if (hpid > 0)
                 r = (kill(hpid, 0) == 0) ? 0 : -LINUX_ESRCH;
         }
@@ -1148,7 +1159,7 @@ static int64_t sc_kill(guest_t *g,
         signal_queue(sig);
         return 0;
     }
-    pid_t hpid = proc_guest_to_host_pid((int64_t) pid);
+    pid_t hpid = kill_resolve_host_pid((int64_t) pid);
     if (hpid > 0)
         return (proc_send_guest_signal(hpid, (int64_t) pid, sig) == 0)
                    ? 0

@@ -1708,9 +1708,14 @@ int proc_set_child_pgid(int64_t guest_pid_val, int64_t pgid)
     return ret;
 }
 
-int proc_get_namespace_targets(proc_signal_target_t *out,
-                               int max,
-                               int64_t pgid_filter)
+/* Shared body for the group/broadcast collector and the single-pid lookup.
+ * guest_filter of 0 accepts every member; a positive value stops at the one
+ * member carrying that guest pid.
+ */
+static int registry_collect(proc_signal_target_t *out,
+                            int max,
+                            int64_t pgid_filter,
+                            int64_t guest_filter)
 {
     /* No republish here: every group change already publishes (fork, setpgid,
      * setsid), and this reader excludes its own entry anyway.
@@ -1749,6 +1754,8 @@ int proc_get_namespace_targets(proc_signal_target_t *out,
             continue;
         if (pgid_filter != PROC_PGID_ANY && entries[i].pgid != pgid_filter)
             continue;
+        if (guest_filter > 0 && entries[i].guest_pid != guest_filter)
+            continue;
         char ppath[PROC_PIDPATHINFO_MAXSIZE];
         int plen = proc_pidpath(entries[i].host_pid, ppath, sizeof(ppath));
         if (plen != our_len || memcmp(ppath, our_path, (size_t) our_len))
@@ -1758,6 +1765,21 @@ int proc_get_namespace_targets(proc_signal_target_t *out,
         count++;
     }
     return count;
+}
+
+int proc_get_namespace_targets(proc_signal_target_t *out,
+                               int max,
+                               int64_t pgid_filter)
+{
+    return registry_collect(out, max, pgid_filter, 0);
+}
+
+pid_t proc_namespace_host_pid(int64_t guest_pid)
+{
+    proc_signal_target_t target;
+    return registry_collect(&target, 1, PROC_PGID_ANY, guest_pid) > 0
+               ? target.host_pid
+               : -1;
 }
 
 int64_t proc_host_to_guest_pid(pid_t host_pid)

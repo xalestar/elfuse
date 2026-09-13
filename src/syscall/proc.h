@@ -495,6 +495,16 @@ int proc_get_namespace_targets(proc_signal_target_t *out,
                                int max,
                                int64_t pgid_filter);
 
+/* Resolve one guest pid to its host pid through the same fork-family registry
+ * proc_get_namespace_targets reads. The child table only holds descendants, so
+ * this is what lets a process signal a relative that is not its own child (its
+ * parent, most commonly).
+ *
+ * Returns the host pid, or -1 when the registry holds no live member with that
+ * guest pid.
+ */
+pid_t proc_namespace_host_pid(int64_t guest_pid);
+
 /* Publish the caller's current guest pid/pgid to the fork-family registry. */
 void proc_registry_publish_self(void);
 

@@ -1,0 +1,39 @@
+src/syscall/signal.c
+  s_3c21e33799b9f6::t_30ee87d2eabe59 1651-1654,1666-1673,1675
+  s_3c21e33799b9f6::t_27df9503420911 1650
+src/syscall/io.c
+  s_3c21e33799b9f6::t_fc7aa097acd97c 238-241,243
+  s_3c21e33799b9f6::t_b4aa97c1aec042 333,338
+  s_3c21e33799b9f6::t_952af8e0c9f851 334-336
+  s_3c21e33799b9f6::t_2d8f5819fd13ee 710
+tests/test-matrix.sh
+  s_3c21e33799b9f6::t_c7b25b3e245ff3 727-728
+src/syscall/signal.h
+  s_3c21e33799b9f6::t_12dd00bf010e20 458-464
+tests/test-wait-process-signal.c
+  s_3c21e33799b9f6::t_37962e7213f309 1-110,115-247
+  s_3c21e33799b9f6::t_4ef16cba74fdcf 111-114
+Makefile
+  s_3c21e33799b9f6::t_c2b2d87471fdf0 416-421
+  s_3c21e33799b9f6::t_f75c198dda4d0a 415
+src/syscall/poll.c
+  s_3c21e33799b9f6::t_0a6d39d56d1918 2034-2035
+  s_3c21e33799b9f6::t_9c16de9c45aa89 386-389,391
+  s_3c21e33799b9f6::t_93f312ddd5f7fc 886
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e4d1c025d513c820c12822d224033c3ec015e60e",
+  "prompts": {},
+  "sessions": {
+    "s_3c21e33799b9f6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c833a62a-25e4-4336-b43f-99c793cd2069",
+        "model": "claude-opus-5"
+      },
+      "human_author": "xalestar <alex.h.r.lin@gmail.com>"
+    }
+  }
+}

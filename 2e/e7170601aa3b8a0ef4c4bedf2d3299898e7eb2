@@ -1,0 +1,20 @@
+tests/test-wait-sigmask-signal.c
+  s_3c21e33799b9f6::t_706dad6636c4b4 162-163
+  s_3c21e33799b9f6::t_c552fda83c62cb 161,164-170
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2ee7170601aa3b8a0ef4c4bedf2d3299898e7eb2",
+  "prompts": {},
+  "sessions": {
+    "s_3c21e33799b9f6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c833a62a-25e4-4336-b43f-99c793cd2069",
+        "model": "claude-opus-5"
+      },
+      "human_author": "xalestar <alex.h.r.lin@gmail.com>"
+    }
+  }
+}

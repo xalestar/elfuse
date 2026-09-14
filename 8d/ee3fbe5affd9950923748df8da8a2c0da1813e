@@ -1,0 +1,58 @@
+tests/test-teardown-live-vcpu-host.c
+  s_3c21e33799b9f6::t_e636b125c075e9 54-58
+tests/test-wait-process-signal.c
+  s_3c21e33799b9f6::t_5d01fd4e92f3d5 160
+  s_3c21e33799b9f6::t_58baa0832dc725 276
+  s_3c21e33799b9f6::t_8a022014b8bc1a 138-139
+  s_3c21e33799b9f6::t_29233401f57f01 10-12
+  s_3c21e33799b9f6::t_03bfeccb21e4a3 17-18
+  s_3c21e33799b9f6::t_bf8e5777fbd44b 9
+  s_3c21e33799b9f6::t_91ddd64342d85f 40-49
+  s_3c21e33799b9f6::t_9705d4dcd7ab75 29
+  s_3c21e33799b9f6::t_b389f6d2b226cf 105-107
+  s_3c21e33799b9f6::t_6c12c5115733e2 224,234,237-239
+src/runtime/futex.c
+  s_3c21e33799b9f6::t_a1392d98da4ad1 354-356,362
+  s_3c21e33799b9f6::t_c29263e89a2362 979-982,984
+  s_3c21e33799b9f6::t_701ae456a32e8f 1207
+src/runtime/thread.c
+  s_3c21e33799b9f6::t_cfe13051a3819d 378-382
+src/syscall/signal.c
+  s_3c21e33799b9f6::t_51adbb6cad0aa9 814-826
+  s_3c21e33799b9f6::t_cbd7fc3dc0ac97 1215,1217,1224
+  s_3c21e33799b9f6::t_4c866d5a16c2a0 583-585
+  s_3c21e33799b9f6::t_f1ee8a5c4039ad 408-443,449
+  s_3c21e33799b9f6::t_883f5f5b1cb4b4 586-587,980-981
+  s_3c21e33799b9f6::t_38b4c6fe561e23 1151-1152
+  s_3c21e33799b9f6::t_038d37c261cc61 2649-2650
+  s_3c21e33799b9f6::t_a5f1e0910c9edf 979
+  s_3c21e33799b9f6::t_14ad99095d2edc 2009,2013-2014
+  s_3c21e33799b9f6::t_b9aa51f9b22167 2015-2016
+  s_3c21e33799b9f6::t_8a84ba1eb751f6 2600,2606-2619,2626-2629
+  s_3c21e33799b9f6::t_30d4c83ece24ed 1216,1218-1223,1225-1237
+  s_3c21e33799b9f6::t_affcd5fe67c86d 1922-1923
+  s_3c21e33799b9f6::t_54bad81c36949c 2008
+  s_3c21e33799b9f6::t_9c38288f5dc8f8 1888
+  s_3c21e33799b9f6::t_9bf11720db89f6 1907-1913
+  s_3c21e33799b9f6::t_c8b65541bbf726 1044-1047
+  s_3c21e33799b9f6::t_30066768f2a773 1706-1707,1714-1716,1727-1731
+src/syscall/signal.h
+  s_3c21e33799b9f6::t_8891d8cb9e3a08 626-627,629-630
+  s_3c21e33799b9f6::t_baaf2ecd215b69 628,631
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8dee3fbe5affd9950923748df8da8a2c0da1813e",
+  "prompts": {},
+  "sessions": {
+    "s_3c21e33799b9f6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c833a62a-25e4-4336-b43f-99c793cd2069",
+        "model": "claude-opus-5"
+      },
+      "human_author": "xalestar <alex.h.r.lin@gmail.com>"
+    }
+  }
+}

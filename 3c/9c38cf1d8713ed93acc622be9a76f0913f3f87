@@ -1,0 +1,46 @@
+src/syscall/signal.c
+  s_3c21e33799b9f6::t_8f28d90a959caf 1689,1691
+  s_3c21e33799b9f6::t_acbe6dab8ef070 1125-1152
+src/syscall/signal.h
+  s_3c21e33799b9f6::t_b621b9f3a05ded 612-619,623-625
+  s_3c21e33799b9f6::t_81a415d5217547 620-622
+src/syscall/proc.c
+  s_3c21e33799b9f6::t_1be4125fc0f547 4126-4127
+  s_3c21e33799b9f6::t_315638bee1cb81 4128-4131
+  s_3c21e33799b9f6::t_684fe27f314f50 4313
+tests/test-matrix.sh
+  s_3c21e33799b9f6::t_614b2ec7df9b63 729-730
+Makefile
+  s_3c21e33799b9f6::t_189fa76588eb38 423-428
+  s_3c21e33799b9f6::t_bfc97b5c71845a 422
+src/syscall/poll.c
+  s_3c21e33799b9f6::t_14f35423ed9b01 1973
+  s_3c21e33799b9f6::t_82d4e4dc5e7e99 926-932
+  s_3c21e33799b9f6::t_32f69436141842 311
+  s_3c21e33799b9f6::t_cb5b05657569ed 896-898
+  s_3c21e33799b9f6::t_66a37945a050af 468-478
+  s_3c21e33799b9f6::t_38c1db3801d336 2050-2054
+  s_3c21e33799b9f6::t_bbbc6cdfc1e344 2077-2083
+  s_3c21e33799b9f6::t_2fd83ec87b4cbc 792
+  s_3c21e33799b9f6::t_4b9693f917a639 391-393
+tests/test-wait-sigmask-signal.c
+  s_3c21e33799b9f6::t_d5d74ae817241d 56-58
+  s_3c21e33799b9f6::t_6f382168155fec 1-55,59-106,109-193
+  s_3c21e33799b9f6::t_dc83af6dd96935 107-108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3c9c38cf1d8713ed93acc622be9a76f0913f3f87",
+  "prompts": {},
+  "sessions": {
+    "s_3c21e33799b9f6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c833a62a-25e4-4336-b43f-99c793cd2069",
+        "model": "claude-opus-5"
+      },
+      "human_author": "xalestar <alex.h.r.lin@gmail.com>"
+    }
+  }
+}

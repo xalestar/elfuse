@@ -1,0 +1,38 @@
+tests/test-wait-sigmask-signal.c
+  s_3c21e33799b9f6::t_180301cf834301 193,198-219,223-245,249-260
+  s_3c21e33799b9f6::t_4b48fb480e4616 25
+  s_3c21e33799b9f6::t_724639e357d9f6 69-76,80-81,83-84,88,94,98
+  s_3c21e33799b9f6::t_2ec104d2dc5549 128-131
+  s_3c21e33799b9f6::t_2a5904cdb50d39 48-53,56,59-65
+  s_3c21e33799b9f6::t_9486c22b488e2b 146,148,152-154,159
+  s_3c21e33799b9f6::t_b9aa51f9b22167 220-222,246-248
+  s_3c21e33799b9f6::t_3ccee39d0c7708 157
+src/syscall/poll.c
+  s_3c21e33799b9f6::t_9462b24f7e8cd6 891-904,908
+  s_3c21e33799b9f6::t_b9aa51f9b22167 405
+  s_3c21e33799b9f6::t_9a345b581373b5 2054-2058,2060-2062
+  s_3c21e33799b9f6::t_6a9d858ca3e090 813
+  s_3c21e33799b9f6::t_2b7f9e1494f5a6 364-370
+  s_3c21e33799b9f6::t_49ce522368abee 2008
+  s_3c21e33799b9f6::t_918aa9deaefb8a 396-401,403-404,406-412,931
+  s_3c21e33799b9f6::t_b2f3e56fd72e5b 853,856-858,861-866
+  s_3c21e33799b9f6::t_4baa34224aafe8 940
+  s_3c21e33799b9f6::t_61c26bf5bda467 2115
+  s_3c21e33799b9f6::t_03659be88686fb 919,922-930
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9f2a5c7e76c21a2ef8ad3798e42889df930a0bf2",
+  "prompts": {},
+  "sessions": {
+    "s_3c21e33799b9f6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c833a62a-25e4-4336-b43f-99c793cd2069",
+        "model": "claude-opus-5"
+      },
+      "human_author": "xalestar <alex.h.r.lin@gmail.com>"
+    }
+  }
+}

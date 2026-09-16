@@ -1,0 +1,30 @@
+Makefile
+  s_c1994ba9563b5d::t_63ac92339f7f4d 462-468
+tests/test-wait-signal-latency.c
+  s_c1994ba9563b5d::t_88690a2e7c303f 1-44,46-52,54-68,71-83,85-91,93-137,139-145,150-151,153-163,165-171,173-242
+  s_c1994ba9563b5d::t_c2fe52d618918c 45,53,84,92,138,152,164,172
+  s_c1994ba9563b5d::t_698a9936cc9316 69-70
+  s_c1994ba9563b5d::t_a31eda1f16c12c 146-149
+tests/test-matrix.sh
+  s_c1994ba9563b5d::t_bd37f1f1363fb8 727-728
+src/syscall/poll.c
+  s_c1994ba9563b5d::t_698a9936cc9316 1175-1178
+  s_c1994ba9563b5d::t_08ec71d3122f1c 1174,1186-1187
+  s_c1994ba9563b5d::t_4d3fa145919096 2619-2643,2737
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3b03f71a9171662e68cada311cf1d3a7e6aacc7e",
+  "prompts": {},
+  "sessions": {
+    "s_c1994ba9563b5d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3ba2c312-64ba-4cff-b566-e26f5e8b29ef",
+        "model": "claude-opus-5"
+      },
+      "human_author": null
+    }
+  }
+}

@@ -1,0 +1,31 @@
+tests/test-wait-signal-latency.c
+  s_c1994ba9563b5d::t_88690a2e7c303f 1-44,46-52,54-68,71-83,85-91,93-137,139-145,150-151,153-163,165-171,173-242
+  s_c1994ba9563b5d::t_698a9936cc9316 69-70
+  s_c1994ba9563b5d::t_c2fe52d618918c 45,53,84,92,138,152,164,172
+  s_c1994ba9563b5d::t_a31eda1f16c12c 146-149
+src/syscall/poll.c
+  s_c1994ba9563b5d::t_a31eda1f16c12c 2715
+  s_c1994ba9563b5d::t_08ec71d3122f1c 1174,1186-1187
+  s_c1994ba9563b5d::t_698a9936cc9316 1175-1178,2726
+  s_c1994ba9563b5d::t_dc1bb6ba88e921 2702-2704,2716-2725,2727-2729
+Makefile
+  s_c1994ba9563b5d::t_63ac92339f7f4d 462-468
+tests/test-matrix.sh
+  s_c1994ba9563b5d::t_bd37f1f1363fb8 727-728
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "526a2d78703ba771fc28eb26b11e98ea12a42adc",
+  "prompts": {},
+  "sessions": {
+    "s_c1994ba9563b5d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3ba2c312-64ba-4cff-b566-e26f5e8b29ef",
+        "model": "claude-opus-5"
+      },
+      "human_author": "xalestar <alex.h.r.lin@gmail.com>"
+    }
+  }
+}

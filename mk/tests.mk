@@ -755,6 +755,7 @@ test-registry-stale-pid: $(ELFUSE_BIN) $(BUILD_DIR)/test-registry-stale-pid
 	echo go >&4; \
 	exec 4>&-; \
 	wait $$fpid; \
+	kill -0 "$$xpid" 2>/dev/null || fail "holder exited before the lookup"; \
 	verdict=$$(sed -n 's/^STALE=//p' "$$tmp/out"); \
 	[ "$$verdict" = esrch ] || fail "kill(99, 0) $${verdict:-unreported}"; \
 	printf "OK\n"

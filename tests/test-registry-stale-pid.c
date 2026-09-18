@@ -47,6 +47,7 @@ int main(int argc, char **argv)
             ;
         _exit(0);
     }
+    close(ready[1]);
     close(release[0]);
     if (read(ready[0], buf, 1) != 1)
         return 1;

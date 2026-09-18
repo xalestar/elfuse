@@ -733,7 +733,10 @@ test-absock-cleanup: $(ELFUSE_BIN) $(BUILD_DIR)/test-absock-cleanup
 # family's kill(99, 0) must still fail with ESRCH.
 ## registry ignores a record whose host pid was reused
 test-registry-stale-pid: $(ELFUSE_BIN) $(BUILD_DIR)/test-registry-stale-pid
-	@tmp=$$(mktemp -d); \
+	@tmp=$$(mktemp -d); xpid=; fpid=; \
+	trap 'kill $$xpid $$fpid 2>/dev/null; rm -rf "$$tmp"' EXIT; \
+	fail() { printf "FAIL: %s\n" "$$1"; exit 1; }; \
+	printf "  %-30s " "stale record on reused pid"; \
 	mkfifo "$$tmp/go"; \
 	$(ELFUSE_BIN) $(BUILD_DIR)/test-registry-stale-pid hold & \
 	xpid=$$!; \
@@ -745,22 +748,16 @@ test-registry-stale-pid: $(ELFUSE_BIN) $(BUILD_DIR)/test-registry-stale-pid
 		grep -q READY "$$tmp/out" && break; \
 		sleep 0.1; \
 	done; \
-	printf '%s 99 1 1\n' "$$xpid" \
-	    >> "$$(getconf DARWIN_USER_TEMP_DIR)elfuse-procs-$$fpid"; \
+	grep -q READY "$$tmp/out" || fail "family never reported READY"; \
+	reg="$$(getconf DARWIN_USER_TEMP_DIR)elfuse-procs-$$fpid"; \
+	[ -f "$$reg" ] || fail "no registry at $$reg"; \
+	printf '%s 99 1 1\n' "$$xpid" >> "$$reg" || fail "cannot append to $$reg"; \
 	echo go >&4; \
-	wait $$fpid; \
 	exec 4>&-; \
-	kill $$xpid; \
-	wait $$xpid 2>/dev/null; \
+	wait $$fpid; \
 	verdict=$$(sed -n 's/^STALE=//p' "$$tmp/out"); \
-	rm -rf "$$tmp"; \
-	printf "  %-30s " "stale record on reused pid"; \
-	if [ "$$verdict" = esrch ]; then \
-		printf "OK\n"; \
-	else \
-		printf "FAIL: kill(99, 0) %s\n" "$${verdict:-unreported}"; \
-		exit 1; \
-	fi
+	[ "$$verdict" = esrch ] || fail "kill(99, 0) $${verdict:-unreported}"; \
+	printf "OK\n"
 
 # PT_INTERP names the loader by the guest's spelling, and a rootfs may ship
 # it somewhere other than where the binary asks (store-style paths). The

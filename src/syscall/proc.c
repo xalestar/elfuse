@@ -1157,11 +1157,14 @@ static void proc_registry_reset_if_owner(const char *path)
     unlink(path);
 }
 
-/* One live member of a process group registry. */
+/* One live member of a process group registry. start_us is the host process's
+ * start time: a host pid alone matches whatever process macOS hands it to next.
+ */
 typedef struct {
     pid_t host_pid;
     int64_t guest_pid;
     int64_t pgid;
+    uint64_t start_us;
 } registry_entry_t;
 
 #define REGISTRY_MAX_ENTRIES 4096
@@ -1178,10 +1181,10 @@ static int flock_retry(int fd, int op)
 
 /* Read @fd from its current offset and invoke @cb once per newline-terminated
  * record, passing a NUL-terminated copy. Records must fit in 159 bytes; both
- * the registry ("hostpid guestpid pgid") and signal/control transport records
- * use bounded numeric lines. Overlong records and an unterminated trailing
- * token are dropped -- every writer appends a whole record under an exclusive
- * lock, so a partial line only appears after a crash mid-write.
+ * the registry ("hostpid guestpid pgid startus") and signal/control transport
+ * records use bounded numeric lines. Overlong records and an unterminated
+ * trailing token are dropped -- every writer appends a whole record under an
+ * exclusive lock, so a partial line only appears after a crash mid-write.
  */
 static void for_each_record(int fd, void (*cb)(char *rec, void *ctx), void *ctx)
 {
@@ -1217,19 +1220,37 @@ typedef struct {
     bool truncated;
 } registry_parse_ctx_t;
 
-/* Upsert one "hostpid guestpid pgid" record, keeping the latest guest_pid/pgid
- * per LIVE host pid. Dead, malformed, and out-of-range records are dropped.
+/* Start time of host process @pid in microseconds.
+ *
+ * Returns false once @pid has exited.
+ */
+static bool host_start_us(pid_t pid, uint64_t *out)
+{
+    struct proc_bsdinfo info;
+    if (proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, sizeof(info)) !=
+        (int) sizeof(info))
+        return false;
+    *out = info.pbi_start_tvsec * 1000000ULL + info.pbi_start_tvusec;
+    return true;
+}
+
+/* Upsert one "hostpid guestpid pgid startus" record, keeping the latest
+ * guest_pid/pgid per LIVE host pid. A record whose start time differs from the
+ * running process's names an exited member whose host pid was reused, so it is
+ * dropped along with dead, malformed, and out-of-range records.
  */
 static void registry_parse_cb(char *rec, void *vctx)
 {
     registry_parse_ctx_t *c = vctx;
     long hp;
     long long gp, pg;
-    if (sscanf(rec, "%ld %lld %lld", &hp, &gp, &pg) != 3)
+    unsigned long long st;
+    if (sscanf(rec, "%ld %lld %lld %llu", &hp, &gp, &pg, &st) != 4)
         return;
     if (hp <= 0 || hp > INT_MAX || pg < 0 || pg > INT_MAX)
         return;
-    if (kill((pid_t) hp, 0) != 0)
+    uint64_t live_us;
+    if (!host_start_us((pid_t) hp, &live_us) || live_us != (uint64_t) st)
         return;
     int idx = -1;
     for (int k = 0; k < c->n; k++)
@@ -1244,6 +1265,7 @@ static void registry_parse_cb(char *rec, void *vctx)
         }
         idx = c->n++;
         c->entries[idx].host_pid = (pid_t) hp;
+        c->entries[idx].start_us = live_us;
     }
     c->entries[idx].guest_pid = (int64_t) gp;
     c->entries[idx].pgid = (int64_t) pg;
@@ -1328,7 +1350,8 @@ static void proc_registry_publish(pid_t host_pid,
             idx = i;
             break;
         }
-    if (idx < 0) {
+    uint64_t start_us;
+    if (idx < 0 && host_start_us(host_pid, &start_us)) {
         if (n == REGISTRY_MAX_ENTRIES)
 
             /* No slot for a new live member: group signals (kill(-1),
@@ -1342,6 +1365,7 @@ static void proc_registry_publish(pid_t host_pid,
         else {
             idx = n++;
             entries[idx].host_pid = host_pid;
+            entries[idx].start_us = start_us;
         }
     }
     if (idx >= 0) {
@@ -1351,11 +1375,12 @@ static void proc_registry_publish(pid_t host_pid,
 
     if (ftruncate(fd, 0) == 0 && lseek(fd, 0, SEEK_SET) == 0) {
         for (int i = 0; i < n; i++) {
-            char lineb[64];
-            int len = snprintf(lineb, sizeof(lineb), "%ld %lld %lld\n",
+            char lineb[96];
+            int len = snprintf(lineb, sizeof(lineb), "%ld %lld %lld %llu\n",
                                (long) entries[i].host_pid,
                                (long long) entries[i].guest_pid,
-                               (long long) entries[i].pgid);
+                               (long long) entries[i].pgid,
+                               (unsigned long long) entries[i].start_us);
             if (len > 0 && (size_t) len < sizeof(lineb) &&
                 write_all(fd, lineb, (size_t) len) < 0)
                 break;

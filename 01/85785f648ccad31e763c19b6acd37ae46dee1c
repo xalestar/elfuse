@@ -1,0 +1,24 @@
+src/syscall/proc.h
+  s_28ce217065b2fb::t_7f831b96f50219 498-507
+src/syscall/syscall.c
+  s_28ce217065b2fb::t_7f831b96f50219 1037-1047,1097,1162
+src/syscall/proc.c
+  s_28ce217065b2fb::t_7f831b96f50219 1711-1718,1757-1758,1770-1783
+  s_28ce217065b2fb::t_1fef2862bf9a98 1784
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0185785f648ccad31e763c19b6acd37ae46dee1c",
+  "prompts": {},
+  "sessions": {
+    "s_28ce217065b2fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6ca7e93f-aa90-455a-abfc-0f5cee4a9e83",
+        "model": "unknown"
+      },
+      "human_author": "xalestar <alex.h.r.lin@gmail.com>"
+    }
+  }
+}

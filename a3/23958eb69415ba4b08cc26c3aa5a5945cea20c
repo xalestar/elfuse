@@ -2,8 +2,10 @@ mk/tests.mk
   s_3ff506fa5273cd::t_e69db5380d7273 734,763-766
 src/syscall/net-absock.c
   s_3ff506fa5273cd::t_c0a17f6c1c9f99 61-68,70,98,136-153,157-163,166-168,172-173,175-181
+  s_3ff506fa5273cd::t_b86e26c24d9ea0 136-153,157,161-163,174-175,180
 src/syscall/net.h
   s_3ff506fa5273cd::t_5488f229eb8007 356-358,361-366
+  s_3ff506fa5273cd::t_e0be277c743ba3 363-364
 src/syscall/proc.c
   s_3ff506fa5273cd::t_1bb34cc5aba5eb 421,752,1153,3173-3175,3177
 ---

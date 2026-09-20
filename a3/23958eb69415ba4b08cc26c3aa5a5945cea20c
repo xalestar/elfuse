@@ -1,0 +1,25 @@
+mk/tests.mk
+  s_3ff506fa5273cd::t_e69db5380d7273 734,763-766
+src/syscall/net-absock.c
+  s_3ff506fa5273cd::t_c0a17f6c1c9f99 61-68,70,98,136-153,157-163,166-168,172-173,175-181
+src/syscall/net.h
+  s_3ff506fa5273cd::t_5488f229eb8007 356-358,361-366
+src/syscall/proc.c
+  s_3ff506fa5273cd::t_1bb34cc5aba5eb 421,752,1153,3173-3175,3177
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a323958eb69415ba4b08cc26c3aa5a5945cea20c",
+  "prompts": {},
+  "sessions": {
+    "s_3ff506fa5273cd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0332438b-a53d-4b37-8fc3-1f4d0b58705f",
+        "model": "claude-opus-5"
+      },
+      "human_author": "xalestar <alex.h.r.lin@gmail.com>"
+    }
+  }
+}

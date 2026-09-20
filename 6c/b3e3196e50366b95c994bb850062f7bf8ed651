@@ -1,0 +1,21 @@
+src/syscall/net-absock.c
+  s_3ff506fa5273cd::t_b86e26c24d9ea0 136-153,157,161-163,174-175,180
+src/syscall/net.h
+  s_3ff506fa5273cd::t_e0be277c743ba3 363-364
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6cb3e3196e50366b95c994bb850062f7bf8ed651",
+  "prompts": {},
+  "sessions": {
+    "s_3ff506fa5273cd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0332438b-a53d-4b37-8fc3-1f4d0b58705f",
+        "model": "claude-opus-5"
+      },
+      "human_author": "xalestar <alex.h.r.lin@gmail.com>"
+    }
+  }
+}

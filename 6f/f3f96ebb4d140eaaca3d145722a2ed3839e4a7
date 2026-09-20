@@ -1,0 +1,23 @@
+mk/tests.mk
+  s_3ff506fa5273cd::t_ac8fa94d312447 36,343,730-776
+src/syscall/proc.c
+  s_3ff506fa5273cd::t_19604e5627b791 1160-1162,1167,1184-1187,1223-1240,1247-1248,1252-1253,1268,1353-1354,1368,1378-1379,1382-1383
+tests/test-registry-stale-pid.c
+  s_3ff506fa5273cd::t_b08d91e2d804f9 1-70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6ff3f96ebb4d140eaaca3d145722a2ed3839e4a7",
+  "prompts": {},
+  "sessions": {
+    "s_3ff506fa5273cd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0332438b-a53d-4b37-8fc3-1f4d0b58705f",
+        "model": "claude-opus-5"
+      },
+      "human_author": "xalestar <alex.h.r.lin@gmail.com>"
+    }
+  }
+}

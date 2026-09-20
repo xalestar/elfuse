@@ -1,0 +1,19 @@
+src/syscall/proc.c
+  s_3ff506fa5273cd::t_9d69f88c629eca 1804-1808
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6b1d748a6c54eb25530e82c367ba008a2b0ac2c2",
+  "prompts": {},
+  "sessions": {
+    "s_3ff506fa5273cd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0332438b-a53d-4b37-8fc3-1f4d0b58705f",
+        "model": "unknown"
+      },
+      "human_author": "xalestar <alex.h.r.lin@gmail.com>"
+    }
+  }
+}

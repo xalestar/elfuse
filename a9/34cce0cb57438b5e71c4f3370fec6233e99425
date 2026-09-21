@@ -1,0 +1,30 @@
+src/syscall/syscall.c
+  s_d27988035c2e17::t_6f77c39d3ed420 1086,1151
+tests/test-matrix.sh
+  s_d27988035c2e17::t_fd7724ba7141a2 744-745
+src/syscall/proc.c
+  s_d27988035c2e17::t_7117c8df9c2de9 1817-1822
+src/syscall/proc-pidfd.c
+  s_d27988035c2e17::t_d53a7cbaf8bb4c 144,210,241
+src/syscall/proc.h
+  s_d27988035c2e17::t_7117c8df9c2de9 508-518
+tests/test-pidfd-parent.c
+  s_d27988035c2e17::t_17089f3949d9ac 1-7,11-65,68-80,83-88
+  s_d27988035c2e17::t_c65c602e807732 8-10,66-67,81-82
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a934cce0cb57438b5e71c4f3370fec6233e99425",
+  "prompts": {},
+  "sessions": {
+    "s_d27988035c2e17": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "543de35c-a47c-49f7-8f16-451b2ffc9aaa",
+        "model": "claude-opus-5"
+      },
+      "human_author": "xalestar <alex.h.r.lin@gmail.com>"
+    }
+  }
+}

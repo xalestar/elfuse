@@ -1,0 +1,24 @@
+src/syscall/proc-pidfd.c
+  s_d27988035c2e17::t_ad3bd9f03066d0 175-176
+  s_d27988035c2e17::t_f144a1ee36f208 144-150,177-181
+  s_d27988035c2e17::t_a3a59dbfea63e0 182
+tests/test-pidfd-parent.c
+  s_d27988035c2e17::t_dfab4081e56c70 13-15,132-146
+  s_d27988035c2e17::t_68a87e61f76c73 147
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "aff1cc533b9443f71e140b7a72457280ece3ffa1",
+  "prompts": {},
+  "sessions": {
+    "s_d27988035c2e17": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "543de35c-a47c-49f7-8f16-451b2ffc9aaa",
+        "model": "claude-opus-5"
+      },
+      "human_author": "xalestar <alex.h.r.lin@gmail.com>"
+    }
+  }
+}

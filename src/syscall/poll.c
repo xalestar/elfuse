@@ -26,6 +26,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <sys/event.h>
+#include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <poll.h>
 
@@ -42,6 +43,7 @@
 #include "syscall/linux-wire.h"
 #include "syscall/internal.h"
 #include "runtime/procemu.h"
+#include "syscall/pipe-ring.h"
 #include "syscall/poll.h"
 #include "syscall/proc.h" /* proc_exit_group_requested */
 #include "syscall/signal.h"
@@ -279,6 +281,77 @@ static bool ppoll_break_pending(uint32_t nfds,
             return true;
     }
     return false;
+}
+
+/* pipe_poll's answer for a pipe in packet mode that lost its other side. The
+ * host calls a lost writer readable whatever is queued and a lost reader a
+ * hangup. Linux reports EPOLLHUP for the first, with EPOLLIN only while a
+ * buffer is queued, and EPOLLERR for the second, with EPOLLOUT only while one
+ * is free.
+ *
+ * queued is the host pipe's byte count where the caller has it, and negative
+ * where the pipe has to be asked.
+ *
+ * Returns false, and leaves *revents, for any other fd.
+ */
+static bool ring_pipe_hangup_revents(int guest_fd,
+                                     uint64_t generation,
+                                     int host_fd,
+                                     int64_t queued,
+                                     uint32_t *revents)
+{
+    pipe_ring_t *ring = fd_pipe_ring_pin(guest_fd, generation);
+    if (!ring)
+        return false;
+
+    int fl = fcntl(host_fd, F_GETFL);
+    if (fl >= 0 && (fl & O_ACCMODE) == O_WRONLY) {
+        *revents = POLLERR | (pipe_ring_full(ring) ? 0 : POLLOUT);
+    } else {
+        int tokens = 0;
+        if (queued < 0 && ioctl(host_fd, FIONREAD, &tokens) == 0)
+            queued = tokens;
+        *revents = POLLHUP | (queued > 0 ? POLLIN : 0);
+    }
+    pipe_ring_release(ring);
+    return true;
+}
+
+/* The hangups host poll() does not report the way Linux does.
+ *
+ * Returns the ready count with the entries stamped here added.
+ */
+static int ppoll_stamp_hangups(uint32_t nfds,
+                               const linux_pollfd_t *guest_fds,
+                               struct pollfd *host_fds,
+                               const bool *need_pollnval,
+                               const uint64_t *guest_gen,
+                               int ret)
+{
+    for (uint32_t i = 0; i < nfds; i++) {
+        if (need_pollnval[i] || guest_fds[i].fd < 0)
+            continue;
+
+        uint32_t stamped;
+        if ((host_fds[i].revents & POLLHUP) &&
+            ring_pipe_hangup_revents(guest_fds[i].fd, guest_gen[i],
+                                     host_fds[i].fd, -1, &stamped))
+            host_fds[i].revents =
+                (short) (stamped &
+                         ((uint32_t) guest_fds[i].events | POLLERR | POLLHUP));
+
+        /* A pty master whose guest-side slaves have all closed is hung up, but
+         * the host still sees elfuse's keepalive slave and reports nothing.
+         * Stamp POLLHUP here so a terminal waiting for its shell to exit --
+         * foot polls for exactly this -- is not left waiting forever.
+         */
+        if (!proc_pty_master_hung_up(guest_fds[i].fd, guest_gen[i]))
+            continue;
+        if (host_fds[i].revents == 0)
+            ret++;
+        host_fds[i].revents |= POLLHUP;
+    }
+    return ret;
 }
 
 int64_t sys_ppoll(guest_t *g,
@@ -541,22 +614,9 @@ ppoll_retry:
                                     invalid_count, unpollable, unpollable_count,
                                     unpollable_ready);
 
-    /* A pty master whose guest-side slaves have all closed is hung up, but the
-     * host still sees elfuse's keepalive slave and reports nothing. Stamp
-     * POLLHUP here so a terminal waiting for its shell to exit -- foot polls
-     * for exactly this -- is not left waiting forever.
-     */
-    if (ret >= 0) {
-        for (uint32_t i = 0; i < nfds; i++) {
-            if (need_pollnval[i] || guest_fds[i].fd < 0)
-                continue;
-            if (!proc_pty_master_hung_up(guest_fds[i].fd, guest_gen[i]))
-                continue;
-            if (host_fds[i].revents == 0)
-                ret++;
-            host_fds[i].revents |= POLLHUP;
-        }
-    }
+    if (ret >= 0)
+        ret = ppoll_stamp_hangups(nfds, guest_fds, host_fds, need_pollnval,
+                                  guest_gen, ret);
 
     int saved_errno = errno;
 
@@ -1817,6 +1877,21 @@ static inline void epoll_merge_event(linux_epoll_event_t *out,
             out->events |= reg->events & LINUX_EPOLL_WRITABLE;
         if (kev->flags & (EV_EOF | EV_ERROR))
             out->events |= LINUX_EPOLLERR | LINUX_EPOLLHUP;
+        return;
+    }
+    uint32_t hangup;
+    if ((kev->flags & EV_EOF) &&
+        ring_pipe_hangup_revents(gfd, reg->generation, (int) kev->ident,
+                                 kev->filter == EVFILT_READ ? kev->data : 0,
+                                 &hangup)) {
+        /* POLLERR and POLLHUP are the EPOLL bits of the same names, and
+         * ep_item_poll lets both through any mask.
+         */
+        out->events |= hangup & (LINUX_EPOLLERR | LINUX_EPOLLHUP);
+        if (hangup & POLLIN)
+            out->events |= reg->events & LINUX_EPOLL_READABLE;
+        if (hangup & POLLOUT)
+            out->events |= reg->events & LINUX_EPOLL_WRITABLE;
         return;
     }
     if (kev->filter == EVFILT_READ) {

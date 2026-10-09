@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -65,6 +66,9 @@ int64_t pipe_ring_queued(pipe_ring_t *ring, int32_t *bytes);
  */
 int64_t pipe_ring_get_size(pipe_ring_t *ring);
 int64_t pipe_ring_set_size(pipe_ring_t *ring, int host_fd, unsigned int arg);
+
+/* pipe_full: every buffer is in use. A ring that cannot be read is full. */
+bool pipe_ring_full(pipe_ring_t *ring);
 
 /* Replace what fstat on the host pipe said with what Linux says of a pipe. */
 void pipe_ring_stat(const pipe_ring_t *ring, struct stat *st);

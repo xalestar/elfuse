@@ -9,14 +9,17 @@
  *
  * Syscalls exercised: pipe2(59), read(63), write(64), readv(65), writev(66),
  *                     fcntl(25), ioctl(29), fstat(80), dup(23), close(57),
- *                     clone(220), wait4(260), rt_sigaction(134)
+ *                     clone(220), wait4(260), rt_sigaction(134), ppoll(73),
+ *                     epoll_create1(20), epoll_ctl(21), epoll_pwait(22)
  */
 
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <pthread.h>
 #include <signal.h>
 #include <string.h>
+#include <sys/epoll.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <sys/uio.h>
@@ -85,6 +88,31 @@ static void *read_later(void *arg)
     char buf[PAGE];
     usleep(100000);
     return (void *) read(*(int *) arg, buf, sizeof(buf));
+}
+
+static void *write_later(void *arg)
+{
+    usleep(100000);
+    return (void *) write(*(int *) arg, "x", 1);
+}
+
+/* What a poll that does not wait reports for one fd. */
+static int polled(int fd, short events)
+{
+    struct pollfd pfd = {.fd = fd, .events = events};
+    return poll(&pfd, 1, 0) < 0 ? -errno : pfd.revents;
+}
+
+/* The same question put to a fresh epoll instance. */
+static int epolled(int fd, uint32_t events)
+{
+    struct epoll_event ev = {.events = events}, out = {0};
+    int ep = epoll_create1(0);
+    int n = epoll_ctl(ep, EPOLL_CTL_ADD, fd, &ev) < 0
+                ? -1
+                : epoll_wait(ep, &out, 1, 0);
+    close(ep);
+    return n < 0 ? -errno : (int) out.events;
 }
 
 static void test_boundaries(void)
@@ -292,6 +320,62 @@ static void test_size(void)
     close_pair(p);
 }
 
+static void test_readiness(void)
+{
+    int p[2];
+    packet_pipe(p);
+    set_fl(p[1], O_NONBLOCK, 0);
+
+    TEST("an empty pipe is writable only");
+    EXPECT_TRUE(polled(p[0], POLLIN) == 0 && polled(p[1], POLLOUT) == POLLOUT &&
+                    epolled(p[0], EPOLLIN) == 0 &&
+                    epolled(p[1], EPOLLOUT) == EPOLLOUT,
+                "poll or epoll saw more than room to write");
+
+    struct pollfd pfd = {.fd = p[0], .events = POLLIN};
+    pthread_t t;
+    pthread_create(&t, NULL, write_later, &p[1]);
+    TEST("a packet wakes a waiting poll");
+    EXPECT_TRUE(poll(&pfd, 1, 5000) == 1 && pfd.revents == POLLIN,
+                "the poll did not return readable");
+    pthread_join(t, NULL);
+
+    while (wr(p[1], 1) == 1) {
+    }
+    TEST("a full pipe is readable only");
+    EXPECT_TRUE(polled(p[0], POLLIN) == POLLIN && polled(p[1], POLLOUT) == 0 &&
+                    epolled(p[0], EPOLLIN) == EPOLLIN &&
+                    epolled(p[1], EPOLLOUT) == 0,
+                "16 packets still left room to write");
+
+    rd(p[0], 100);
+    TEST("one read makes room");
+    EXPECT_TRUE(
+        polled(p[1], POLLOUT) == POLLOUT && epolled(p[1], EPOLLOUT) == EPOLLOUT,
+        "a free buffer did not show as writable");
+
+    close(p[1]);
+    TEST("a lost writer adds POLLHUP");
+    EXPECT_TRUE(polled(p[0], POLLIN) == (POLLIN | POLLHUP) &&
+                    epolled(p[0], EPOLLIN) == (EPOLLIN | EPOLLHUP),
+                "the hangup hid the packets, or the packets the hangup");
+    while (rd(p[0], 100) > 0) {
+    }
+    TEST("POLLHUP alone once drained");
+    EXPECT_TRUE(
+        polled(p[0], POLLIN) == POLLHUP && epolled(p[0], EPOLLIN) == EPOLLHUP,
+        "an empty pipe with no writer still reads as readable");
+    close(p[0]);
+
+    packet_pipe(p);
+    close(p[0]);
+    TEST("a lost reader is POLLERR");
+    EXPECT_TRUE(polled(p[1], POLLOUT) == (POLLOUT | POLLERR) &&
+                    epolled(p[1], EPOLLOUT) == (EPOLLOUT | EPOLLERR),
+                "the write end did not report the error with its room");
+    close(p[1]);
+}
+
 int main(void)
 {
     signal(SIGPIPE, on_sigpipe);
@@ -304,6 +388,7 @@ int main(void)
     test_mode_is_per_description();
     test_queries();
     test_size();
+    test_readiness();
 
     SUMMARY("test-pipe-packet");
     return fails > 0 ? 1 : 0;

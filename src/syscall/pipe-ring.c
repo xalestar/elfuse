@@ -444,6 +444,16 @@ int64_t pipe_ring_queued(pipe_ring_t *ring, int32_t *bytes)
     return 0;
 }
 
+bool pipe_ring_full(pipe_ring_t *ring)
+{
+    if (ring_lock(ring) < 0)
+        return true;
+    ring_meta_t m;
+    bool ok = ring_load(ring, &m);
+    ring_unlock(ring);
+    return !ok || m.head - m.tail == m.slots;
+}
+
 int64_t pipe_ring_get_size(pipe_ring_t *ring)
 {
     int64_t rc = ring_lock(ring);

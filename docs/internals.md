@@ -96,6 +96,7 @@ Key files:
 | `src/syscall/mem.c` | `brk`, `mmap`, `mprotect`, `mremap`, `madvise`, `msync` |
 | `src/syscall/fs.c`, `fs-stat.c`, `fs-xattr.c` | filesystem syscalls |
 | `src/syscall/io.c`, `poll.c`, `fd.c`, `fdtable.c` | I/O, polling, FD lifecycle and table |
+| `src/syscall/pipe-ring.c` | buffer ring behind a pipe in packet mode (see [Packet-Mode Pipes](#packet-mode-pipes)) |
 | `src/syscall/path.c` | centralized guest-to-host path resolution |
 | `src/syscall/casefold.c` | guest/host filename encoding for case-folding volumes (see [filenames.md](filenames.md)) |
 | `src/syscall/casefold-walk.c` | case-exact path resolution against the sysroot |
@@ -622,6 +623,7 @@ waiter enqueue, so the compare-and-wait is a single critical section.
 | Synthetic USB tree (scratch dirs + device model) | `usb_lock` (leaf) | `src/runtime/usb-sysfs.c` |
 | usbdevfs fd side table | `usbdev_table_lock` + per-entry lock | `src/syscall/usbdev.c` |
 | usbdevfs event-thread startup (runloop + notify port) | `usbdev_loop_lock` (leaf) | `src/syscall/usbdev.c` |
+| Pipe buffer rings, and every close of a ring state file | `pipe_ring_lock` (leaf) | `src/syscall/pipe-ring.c` |
 
 Lock ordering is documented inline in those files
 (`mmap_lock` is order 1, `fd_lock` is order 3, `sfd_lock` is order 5a)
@@ -875,6 +877,60 @@ Key shape:
 Validation lives in `make test-fuse-alpine`, which exercises
 `/dev/fuse` plus `mount("fuse")` against the staged Alpine musl
 sysroot fixture.
+
+## Packet-Mode Pipes
+
+`O_DIRECT` on a pipe makes every `write` one packet: a `read` returns one
+packet and drops what it did not take. A host pipe is a byte stream, so a pipe
+in packet mode keeps its data elsewhere. `src/syscall/pipe-ring.c` holds it in
+the buffer ring of the kernel's `fs/pipe.c`: 16 buffers of one 4096-byte page
+by default, each marked as a packet, as stream data that takes merges, or as
+neither when it was spliced in. `pipe_ring_xfer` runs `pipe_read` and
+`pipe_write` over that ring, and `io_xfer` sends every transfer on such a pipe
+there, so `read`, `write`, `readv`, `writev`, `splice`, `vmsplice` and
+`sendfile` all reach it.
+
+The ring is an anonymous temp file, metadata at offset 0 and one page for each
+buffer behind it. Every guest fd of the pipe references it through
+`fd_entry_t.ring`; `dup`, a reopen through `/proc/self/fd/N`, and `fork` carry
+the reference. An `fcntl(F_SETLK)` lock on the file excludes the other
+processes that hold the pipe, and the kernel releases it when its holder dies.
+`pipe_ring_lock` excludes the threads of one process. Every close of a state
+file descriptor runs under that mutex, because closing any descriptor of a
+file drops the process's lock on it.
+
+The host pipe stays the guest fd's descriptor and carries tokens: one byte for
+each buffer in use, and filler up to its capacity while every buffer is in
+use. Host readiness then answers for the ring: readable while a buffer is
+queued, writable while one is free, end of file and `EPIPE` once the other
+side is gone. `poll`, `epoll`, `select` and the blocking waits therefore need
+no knowledge of the ring. A writer adds tokens before it commits the metadata
+that accounts for them and a reader removes them after, so a process killed
+between the two leaves the host pipe reporting too much, which the next reader
+corrects, and never too little.
+
+`pipe2(O_DIRECT)` creates the ring with the pipe. Every other `pipe2` pipe
+takes a dormant ring, an object with no state file. `F_SETFL` with `O_DIRECT`
+on a write end makes it active: the bytes queued in the host pipe move into
+the ring as stream buffers, and the host pipe takes tokens. A counter and a
+flag keep a host transfer on a dormant pipe apart from that conversion, and
+only a process with more than one thread pays for them.
+
+Another process cannot be told that a pipe it holds has moved into a ring. So
+once `fork` or `SCM_RIGHTS` has handed a dormant pipe to one, it stays a host
+pipe, and `F_SETFL` records `O_DIRECT` without effect.
+
+### Deviations From Linux
+
+| Linux behavior | elfuse behavior |
+|---|---|
+| `F_SETFL(O_DIRECT)` starts packet mode on any pipe or FIFO | only on a `pipe2` pipe that no other process holds yet. After a `fork`, after `SCM_RIGHTS`, and on a FIFO the flag is recorded and writes stay a stream: two writes of 2 and 3 bytes read as 5 |
+| a pipe fd in packet mode passes over `SCM_RIGHTS` | `sendmsg` fails with `EINVAL`; the receiver would hold the host pipe without the ring |
+| stream data queued before `F_SETFL(O_DIRECT)` keeps the buffers its writes made | it is cut into full pages. Writes of 3000 and 3000, then packets of 1500 and 10, read as 7500 and 10 on Linux and as 7510 here, because the second packet finds room to merge |
+| `O_DIRECT` belongs to the open file description, so a child that sets or clears it changes the parent's writes | the flag is per process, like every status flag elfuse keeps itself |
+| `select` reports a read end not writable; `poll` and `epoll` report a hangup even when asked for no events; edge-triggered `epoll` reports no edge after a read | the host pipe answers these three, as it does for a stream pipe: writable, no report, and one extra edge while packets stay queued |
+| `F_SETPIPE_SZ` above 1 MiB succeeds with `CAP_SYS_RESOURCE` | `EPERM` |
+| `tee` works | `EINVAL`, as for every pipe |
 
 ## USB Device Passthrough
 

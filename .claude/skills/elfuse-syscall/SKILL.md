@@ -185,6 +185,14 @@ that treats them as such tends to compile and then deadlock or leak:
 - Abstract Unix sockets, SCM_RIGHTS, and netlink each carry their own
   serialization format over guest-supplied lengths, which is why several of
   them have proof targets.
+- A pipe in packet mode (`pipe-ring.c`) keeps its data in a ring file, and the
+  host pipe behind the guest fd holds only tokens. Every transfer on a pipe
+  therefore goes through `io_xfer`, which diverts to the ring: a host `read`
+  or `write` on the fd moves tokens, hands the guest zeros, and leaves the
+  ring's readiness wrong for every other holder. A new call that answers from
+  the host pipe (a size, a count, a stat field) has to ask the ring when
+  `fd_entry_t.ring` is active. `docs/internals.md`, section "Packet-Mode
+  Pipes", has the token rules.
 - usbdevfs (`usbdev.c`, with `src/runtime/usb-sysfs.c` and `usb-desc.c`):
   `/dev/bus/usb/BBB/DDD` character devices over IOKit, asynchronous URBs, and
   a synthetic `/sys/bus/usb` tree that goes through the same intercept layer

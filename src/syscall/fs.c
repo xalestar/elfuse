@@ -1748,6 +1748,26 @@ static int64_t fcntl_flock_wait(guest_t *g,
     }
 }
 
+/* F_SETPIPE_SZ (1031) and F_GETPIPE_SZ (1032). A pipe in packet mode answers
+ * both from its ring. For any other fd the two keep the answers they had: macOS
+ * cannot size a host pipe, so a new size is accepted without being applied.
+ */
+static int64_t fcntl_pipe_size(int fd,
+                               const fd_entry_t *snap,
+                               int cmd,
+                               uint64_t arg)
+{
+    pipe_ring_t *ring = fd_pipe_ring_pin(fd, snap->generation);
+    if (!ring)
+        return cmd == 1031 ? (int64_t) arg : -LINUX_EINVAL;
+
+    int64_t rc = cmd == 1031 ? pipe_ring_set_size(ring, snap->host_fd,
+                                                  (unsigned int) arg)
+                             : pipe_ring_get_size(ring);
+    pipe_ring_release(ring);
+    return rc;
+}
+
 int64_t sys_fcntl(guest_t *g, int fd, int cmd, uint64_t arg)
 {
     if (!RANGE_CHECK(fd, 0, FD_TABLE_SIZE))
@@ -2107,8 +2127,8 @@ int64_t sys_fcntl(guest_t *g, int fd, int cmd, uint64_t arg)
         /* macOS does not support pipe size queries; return default 64KiB */
         return 65536;
     case 1031: /* F_SETPIPE_SZ */
-        /* macOS does not support pipe size setting; pretend success */
-        return (int64_t) arg;
+    case 1032:
+        return fcntl_pipe_size(fd, &fd_snap, cmd, arg);
     case LINUX_F_GET_SEALS:
         return fd_table[fd].seals;
     case LINUX_F_ADD_SEALS: {

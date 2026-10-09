@@ -63,6 +63,7 @@ _Static_assert(sizeof(ring_meta_t) <= RING_DATA_OFF,
 struct pipe_ring {
     _Atomic unsigned int refs;
     int state_fd;
+    ino_t ino;
 };
 
 /* Excludes the threads of this process from every ring. The fcntl lock in
@@ -424,10 +425,129 @@ int64_t pipe_ring_xfer(pipe_ring_t *ring,
     return 0;
 }
 
+int64_t pipe_ring_queued(pipe_ring_t *ring, int32_t *bytes)
+{
+    int64_t rc = ring_lock(ring);
+    if (rc < 0)
+        return rc;
+    ring_meta_t m;
+    bool ok = ring_load(ring, &m);
+    ring_unlock(ring);
+    if (!ok)
+        return -LINUX_EIO;
+
+    /* pipe_ioctl sums buf->len over the ring, packets or not. */
+    int32_t sum = 0;
+    for (uint32_t i = m.tail; i != m.head; i++)
+        sum += m.buf[i & (m.slots - 1)].len;
+    *bytes = sum;
+    return 0;
+}
+
+int64_t pipe_ring_get_size(pipe_ring_t *ring)
+{
+    int64_t rc = ring_lock(ring);
+    if (rc < 0)
+        return rc;
+    ring_meta_t m;
+    bool ok = ring_load(ring, &m);
+    ring_unlock(ring);
+    return ok ? (int64_t) m.slots * RING_PAGE : -LINUX_EIO;
+}
+
+/* Move the buffers in use to the front of a ring of `slots`, in order, which is
+ * what pipe_resize_ring leaves.
+ *
+ * Returns false with nothing committed.
+ */
+static bool ring_resize(const pipe_ring_t *ring,
+                        ring_meta_t *m,
+                        uint32_t slots,
+                        uint8_t *pages)
+{
+    uint32_t used = m->head - m->tail;
+    ring_meta_t next = {.magic = RING_MAGIC, .slots = slots, .head = used};
+    for (uint32_t i = 0; i < used; i++) {
+        uint32_t idx = (m->tail + i) & (m->slots - 1);
+        next.buf[i] = m->buf[idx];
+        if (pread(ring->state_fd, pages + (size_t) i * RING_PAGE, RING_PAGE,
+                  ring_data_off(idx)) < 0)
+            return false;
+    }
+    for (uint32_t i = 0; i < used; i++) {
+        if (pwrite(ring->state_fd, pages + (size_t) i * RING_PAGE, RING_PAGE,
+                   ring_data_off(i)) != (ssize_t) RING_PAGE)
+            return false;
+    }
+    if (!ring_store(ring, &next))
+        return false;
+    *m = next;
+    return true;
+}
+
+int64_t pipe_ring_set_size(pipe_ring_t *ring, int host_fd, unsigned int arg)
+{
+    /* round_pipe_size and pipe_set_size, fs/pipe.c. A request above
+     * fs.pipe-max-size is refused the way it is for a caller without
+     * CAP_SYS_RESOURCE.
+     */
+    if (arg > (1U << 31))
+        return -LINUX_EINVAL;
+    uint32_t slots = 1;
+    while (slots * RING_PAGE < arg && slots < RING_MAX_SLOTS)
+        slots <<= 1;
+    if ((uint64_t) slots * RING_PAGE < arg)
+        return -LINUX_EPERM;
+
+    uint8_t *pages = malloc((size_t) RING_MAX_SLOTS * RING_PAGE);
+    if (!pages)
+        return -LINUX_ENOMEM;
+
+    int64_t rc = ring_lock(ring);
+    if (rc < 0) {
+        free(pages);
+        return rc;
+    }
+    ring_meta_t m;
+    if (!ring_load(ring, &m)) {
+        rc = -LINUX_EIO;
+    } else if (m.head - m.tail > slots) {
+        rc = -LINUX_EBUSY; /* pipe_resize_ring */
+    } else if (slots != m.slots && !ring_resize(ring, &m, slots, pages)) {
+        rc = -LINUX_EIO;
+    } else {
+        /* Whichever end host_fd is can do one of these and fails the other. The
+         * end that cannot is put right by the next transfer on the other side.
+         */
+        uint32_t used = m.head - m.tail;
+        ring_tokens_add(host_fd, 0, used == m.slots);
+        ring_tokens_trim(host_fd, used, used == m.slots);
+        rc = (int64_t) m.slots * RING_PAGE;
+    }
+    ring_unlock(ring);
+    free(pages);
+    return rc;
+}
+
+void pipe_ring_stat(const pipe_ring_t *ring, struct stat *st)
+{
+    /* get_pipe_inode: S_IFIFO | S_IRUSR | S_IWUSR and one inode for both ends,
+     * whose size stays 0. The state file's inode number is the one value every
+     * process holding the pipe agrees on.
+     */
+    st->st_mode = S_IFIFO | S_IRUSR | S_IWUSR;
+    st->st_ino = ring->ino;
+    st->st_nlink = 1;
+    st->st_size = 0;
+    st->st_blocks = 0;
+    st->st_blksize = RING_PAGE;
+}
+
 pipe_ring_t *pipe_ring_adopt(int state_fd)
 {
+    struct stat st;
     pipe_ring_t *ring = NULL;
-    if (fd_set_cloexec(state_fd) == 0)
+    if (fstat(state_fd, &st) == 0 && fd_set_cloexec(state_fd) == 0)
         ring = malloc(sizeof(*ring));
     if (!ring) {
         int saved_errno = errno;
@@ -439,6 +559,7 @@ pipe_ring_t *pipe_ring_adopt(int state_fd)
     }
     atomic_init(&ring->refs, 1);
     ring->state_fd = state_fd;
+    ring->ino = st.st_ino;
     return ring;
 }
 

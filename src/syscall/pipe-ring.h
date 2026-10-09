@@ -17,6 +17,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/uio.h>
 
@@ -55,3 +56,15 @@ int64_t pipe_ring_xfer(pipe_ring_t *ring,
                        int iovcnt,
                        ssize_t *out,
                        const fd_block_state_t *st);
+
+/* FIONREAD: the unread bytes in every buffer. 0 or a negative Linux errno. */
+int64_t pipe_ring_queued(pipe_ring_t *ring, int32_t *bytes);
+
+/* F_GETPIPE_SZ and F_SETPIPE_SZ. Each returns the ring's capacity in bytes or a
+ * negative Linux errno. host_fd is either end of the host pipe.
+ */
+int64_t pipe_ring_get_size(pipe_ring_t *ring);
+int64_t pipe_ring_set_size(pipe_ring_t *ring, int host_fd, unsigned int arg);
+
+/* Replace what fstat on the host pipe said with what Linux says of a pipe. */
+void pipe_ring_stat(const pipe_ring_t *ring, struct stat *st);

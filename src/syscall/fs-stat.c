@@ -24,6 +24,7 @@
 #include "syscall/fuse.h"
 #include "syscall/fs.h"
 #include "syscall/internal.h"
+#include "syscall/pipe-ring.h"
 #include "syscall/usbdev.h"
 #include "syscall/path.h"
 #include "syscall/proc.h"
@@ -272,8 +273,18 @@ static int64_t stat_empty_path_fd(int dirfd, struct stat *mac_st)
         }
     }
 
-    if (fstat(ref.fd, mac_st) < 0)
+    if (fstat(ref.fd, mac_st) < 0) {
         rc = linux_errno();
+    } else if (snap.ring) {
+        /* The host pipe behind a ring holds tokens, so its size is not the
+         * pipe's, and its two ends are two inodes.
+         */
+        pipe_ring_t *ring = fd_pipe_ring_pin(dirfd, snap.generation);
+        if (ring) {
+            pipe_ring_stat(ring, mac_st);
+            pipe_ring_release(ring);
+        }
+    }
 
 done:
     host_fd_ref_close(&ref);

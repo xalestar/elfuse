@@ -2694,6 +2694,29 @@ int64_t sys_process_vm_writev(guest_t *g,
 
 /* terminal I/O. */
 
+/* FIONREAD on a pipe in packet mode, whose host pipe would count tokens.
+ *
+ * Returns INT64_MIN for any other fd.
+ */
+static int64_t pipe_ring_fionread(guest_t *g, int fd, uint64_t arg)
+{
+    fd_entry_t snap;
+    if (!fd_snapshot(fd, &snap) || !snap.ring)
+        return INT64_MIN;
+    pipe_ring_t *ring = fd_pipe_ring_pin(fd, snap.generation);
+    if (!ring)
+        return -LINUX_EBADF;
+
+    int32_t queued = 0;
+    int64_t rc = pipe_ring_queued(ring, &queued);
+    pipe_ring_release(ring);
+    if (rc < 0)
+        return rc;
+    return guest_write_small(g, arg, &queued, sizeof(queued)) < 0
+               ? -LINUX_EFAULT
+               : 0;
+}
+
 /* Over the function-size limit on purpose.
  *
  * A dispatch switch: one arm per request code, arms independent. The length is
@@ -2727,6 +2750,12 @@ int64_t sys_ioctl(guest_t *g, int fd, uint64_t request, uint64_t arg)
             fd_table[fd].linux_flags &= ~LINUX_O_CLOEXEC;
         pthread_mutex_unlock(&fd_lock);
         return 0;
+    }
+
+    if (request == LINUX_FIONREAD) {
+        int64_t queued = pipe_ring_fionread(g, fd, arg);
+        if (queued != INT64_MIN)
+            return queued;
     }
 
     /* usbdevfs fds answer their own ioctl set; the host fd behind them is a

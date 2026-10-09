@@ -8,8 +8,8 @@
  * stream, so each of these fails wherever elfuse lets it carry the data.
  *
  * Syscalls exercised: pipe2(59), read(63), write(64), readv(65), writev(66),
- *                     fcntl(25), dup(23), close(57), clone(220), wait4(260),
- *                     rt_sigaction(134)
+ *                     fcntl(25), ioctl(29), fstat(80), dup(23), close(57),
+ *                     clone(220), wait4(260), rt_sigaction(134)
  */
 
 #include <errno.h>
@@ -17,6 +17,8 @@
 #include <pthread.h>
 #include <signal.h>
 #include <string.h>
+#include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <sys/uio.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -234,6 +236,62 @@ static void test_mode_is_per_description(void)
     close_pair(p);
 }
 
+static void test_queries(void)
+{
+    int p[2];
+    packet_pipe(p);
+    wr(p[1], 3);
+    wr(p[1], 2);
+
+    int rd_bytes = -1, wr_bytes = -1;
+    ioctl(p[0], FIONREAD, &rd_bytes);
+    ioctl(p[1], FIONREAD, &wr_bytes);
+    TEST("FIONREAD sums the packets");
+    EXPECT_TRUE(rd_bytes == 5 && wr_bytes == 5, "an end did not report 5");
+
+    struct stat rs = {0}, ws = {0};
+    fstat(p[0], &rs);
+    fstat(p[1], &ws);
+    TEST("fstat is an empty-sized pipe");
+    EXPECT_TRUE(rs.st_mode == (S_IFIFO | 0600) && rs.st_size == 0 &&
+                    rs.st_blksize == PAGE && rs.st_nlink == 1,
+                "mode, size, block size or link count is not a pipe's");
+    TEST("both ends are one inode");
+    EXPECT_TRUE(rs.st_ino == ws.st_ino && rs.st_dev == ws.st_dev,
+                "the two ends report two files");
+    rd(p[0], 100);
+    rd(p[0], 100);
+    close_pair(p);
+}
+
+static void test_size(void)
+{
+    int p[2];
+    packet_pipe(p);
+    set_fl(p[1], O_NONBLOCK, 0);
+
+    TEST("F_GETPIPE_SZ is 16 pages");
+    EXPECT_TRUE(fcntl(p[0], F_GETPIPE_SZ) == SLOTS * PAGE &&
+                    fcntl(p[1], F_GETPIPE_SZ) == SLOTS * PAGE,
+                "an end did not report 65536");
+
+    TEST("one page holds one packet");
+    EXPECT_TRUE(fcntl(p[1], F_SETPIPE_SZ, PAGE) == PAGE && wr(p[1], 1) == 1 &&
+                    wr(p[1], 1) == -EAGAIN,
+                "a one-page pipe took a second packet");
+
+    TEST("size rounds up to a power of 2");
+    EXPECT_TRUE(fcntl(p[0], F_SETPIPE_SZ, PAGE + 904) == 2 * PAGE &&
+                    fcntl(p[1], F_GETPIPE_SZ) == 2 * PAGE && wr(p[1], 1) == 1 &&
+                    wr(p[1], 1) == -EAGAIN,
+                "5000 did not become two pages");
+
+    TEST("a pipe in use does not shrink");
+    EXPECT_ERRNO(fcntl(p[1], F_SETPIPE_SZ, PAGE), EBUSY,
+                 "two packets fit into one buffer");
+    close_pair(p);
+}
+
 int main(void)
 {
     signal(SIGPIPE, on_sigpipe);
@@ -244,6 +302,8 @@ int main(void)
     test_full();
     test_fork();
     test_mode_is_per_description();
+    test_queries();
+    test_size();
 
     SUMMARY("test-pipe-packet");
     return fails > 0 ? 1 : 0;

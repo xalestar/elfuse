@@ -560,6 +560,11 @@ $(BUILD_DIR)/test-sigpipe: tests/test-sigpipe.c | $(BUILD_DIR)
 	@echo "  CROSS   $< (with -lpthread)"
 	$(Q)$(CROSS_COMPILE)gcc $(CROSS_TEST_CFLAGS) -Itests -o $@ $< -lpthread
 
+# test-pipe-packet blocks a reader and a writer against a second thread.
+$(BUILD_DIR)/test-pipe-packet: tests/test-pipe-packet.c | $(BUILD_DIR)
+	@echo "  CROSS   $< (with -lpthread)"
+	$(Q)$(CROSS_COMPILE)gcc $(CROSS_TEST_CFLAGS) -Itests -o $@ $< -lpthread
+
 # test-pipe-steal contends several readers for one byte, then execs on top.
 $(BUILD_DIR)/test-pipe-steal: tests/test-pipe-steal.c | $(BUILD_DIR)
 	@echo "  CROSS   $< (with -lpthread)"

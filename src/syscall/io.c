@@ -52,6 +52,7 @@
 #include "syscall/net.h"
 #include "syscall/net-identity.h"
 #include "syscall/net-sockopt.h"
+#include "syscall/pipe-ring.h"
 #include "syscall/usbdev.h"
 #include "syscall/proc.h"
 #include "syscall/signal.h"
@@ -483,6 +484,22 @@ int64_t io_xfer(int fd,
     bool is_read = (events & POLLIN) != 0;
     fd_block_state_t st = *pinned;
     bool is_socket = st.type == FD_SOCKET;
+
+    /* A pipe in packet mode: host_fd holds tokens and the ring holds the data,
+     * so no transfer below may touch it.
+     */
+    if (st.ring) {
+        pipe_ring_t *ring = fd_pipe_ring_pin(fd, st.generation);
+        if (!ring) {
+            *out = -1;
+            errno = EBADF;
+            return 0;
+        }
+        int64_t rc =
+            pipe_ring_xfer(ring, host_fd, events, iov, iovcnt, out, &st);
+        pipe_ring_release(ring);
+        return rc;
+    }
 
     /* Nothing that can block: a regular file, a directory, or a closed slot on
      * its way to EBADF. One host call, nothing asked before it.

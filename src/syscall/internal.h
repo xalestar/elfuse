@@ -543,7 +543,9 @@ int fd_get_type(int guest_fd);
  * FD_CLOSED when the slot is closed or out of range. guest_nonblock is what the
  * guest asked for, which on an owned fd is the only place it is recorded. seals
  * rides along so a write path can reject a sealed memfd from the state it
- * pinned, rather than from a second lookup that may describe another file.
+ * pinned, rather than from a second lookup that may describe another file. ring
+ * says the data is in a pipe ring and not behind the host fd, and guest_direct
+ * that a write to it is a packet.
  */
 typedef struct {
     int type;
@@ -552,6 +554,8 @@ typedef struct {
     bool can_block;
     bool nonblock_owned;
     bool guest_nonblock;
+    bool ring;
+    bool guest_direct;
 } fd_block_state_t;
 
 fd_block_state_t fd_block_state(int guest_fd);
@@ -1146,6 +1150,8 @@ static inline fd_block_state_t fd_block_state_of(const fd_entry_t *e)
         .can_block = e->can_block,
         .nonblock_owned = e->nonblock_owned,
         .guest_nonblock = (e->linux_flags & LINUX_O_NONBLOCK) != 0,
+        .ring = e->ring != NULL,
+        .guest_direct = (e->linux_flags & LINUX_O_DIRECT) != 0,
     };
 }
 

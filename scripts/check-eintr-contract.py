@@ -174,6 +174,11 @@ INVENTORY = {
         "has moved the short count is returned instead, which is what Linux "
         "does and what makes the restart safe: there is nothing to redo.",
     ),
+    "syscall/pipe-ring.c::pipe_ring_xfer": (
+        "restartable",
+        "The same rule as io_xfer, which hands it every transfer on a pipe in "
+        "packet mode: EINTR is returned only while no byte has moved.",
+    ),
     "syscall/net.c::net_wait_or_interrupted": (
         "restartable",
         "A wait, nothing more. Its callers own the question of what they had "
@@ -355,6 +360,10 @@ INVENTORY = {
     "syscall/mem.c::sys_mmap_high_va": (
         "not-a-wait",
         "Refuses the overlay because an execve is reaping this thread.",
+    ),
+    "syscall/pipe-ring.c::ring_lock": (
+        "not-a-wait",
+        "Refuses the ring because an execve is reaping this thread.",
     ),
     "runtime/forkipc.c::clone_dispatch": (
         "not-a-wait",

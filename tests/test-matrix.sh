@@ -864,6 +864,8 @@ run_unit_tests()
     test_check "$runner" "test-synthetic-wait-signal" "0 failed" \
         "$bindir/test-synthetic-wait-signal"
     test_check "$runner" "test-sigpipe" "0 failed" "$bindir/test-sigpipe"
+    test_check "$runner" "test-pipe-packet" "0 failed" \
+        "$bindir/test-pipe-packet"
 
     printf "\nNegative tests\n"
     test_check "$runner" "test-negative" "0 failed" "$bindir/test-negative"

@@ -198,10 +198,8 @@ pipe2 | O_CLOEXEC | pair F | fd:cloexec | fd:nocloexec
 pipe2 | O_NONBLOCK | pair F | fd:getfl:O_NONBLOCK | fd:nogetfl:O_NONBLOCK
 # Packet mode is a property of the write end; the read end never reports it.
 pipe2 | O_DIRECT | pair F | pair1:getfl:O_DIRECT | pair1:nogetfl:O_DIRECT
-# Packet mode itself. The host pipe is a byte stream and has no such mode, so
-# this stays pending until someone decides between giving the pipe a framed
-# backing and refusing the flag; see the note in docs/testing.md.
-pending pipe2 | O_DIRECT@packets | pair F | pair:packets | pair:stream
+# Packet mode itself: a read returns one write and no more.
+pipe2 | O_DIRECT@packets | pair F | pair:packets | pair:stream
 pipe2 | O_APPEND@unknown | pair F | err:EINVAL | fd
 
 # eventfd2(initval, flags)

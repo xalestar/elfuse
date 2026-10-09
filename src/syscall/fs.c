@@ -2946,12 +2946,27 @@ int64_t sys_pipe2(guest_t *g, uint64_t fds_gva, int linux_flags)
     if (pipe(host_fds) < 0)
         return linux_errno();
 
+    /* Packet mode needs the buffer ring: the host pipe is a byte stream. */
+    pipe_ring_t *ring = NULL;
+    if (linux_flags & LINUX_O_DIRECT) {
+        ring = pipe_ring_create();
+        if (!ring) {
+            int saved_errno = errno;
+            close(host_fds[0]);
+            close(host_fds[1]);
+            errno = saved_errno;
+            return linux_errno();
+        }
+    }
+
     int guest_fds[2];
     guest_fds[0] = fd_alloc(FD_PIPE, host_fds[0], NULL);
     if (guest_fds[0] < 0) {
         int saved_errno = errno;
         close(host_fds[0]);
         close(host_fds[1]);
+        if (ring)
+            pipe_ring_release(ring);
         errno = saved_errno;
         return linux_errno();
     }
@@ -2961,8 +2976,23 @@ int64_t sys_pipe2(guest_t *g, uint64_t fds_gva, int linux_flags)
         int saved_errno = errno;
         fd_retire_published(guest_fds[0], host_fds[0]);
         close(host_fds[1]);
+        if (ring)
+            pipe_ring_release(ring);
         errno = saved_errno;
         return linux_errno();
+    }
+
+    /* Each slot takes its own reference, and this function's goes back. The
+     * ring's token writes rely on O_NONBLOCK, so the one case where fd_alloc
+     * did not set it is set here.
+     */
+    if (ring) {
+        for (int i = 0; i < 2; i++) {
+            fd_pipe_ring_attach(guest_fds[i], ring);
+            if (!fd_block_state(guest_fds[i]).nonblock_owned)
+                fd_set_nonblock(host_fds[i]);
+        }
+        pipe_ring_release(ring);
     }
 
     /* The host fds are already nonblocking: fd_alloc owns O_NONBLOCK on a pipe
@@ -2973,9 +3003,7 @@ int64_t sys_pipe2(guest_t *g, uint64_t fds_gva, int linux_flags)
     fd_publish_linux_flags(guest_fds[0], shadow);
 
     /* Linux keeps O_DIRECT on the write end only, since packet mode is decided
-     * by the writer. F_SETFL already records the bit for a pipe, so a pipe made
-     * with it reads back the same way. Neither path gives the pipe packet
-     * semantics: the host has none.
+     * by the writer.
      */
     fd_publish_linux_flags(guest_fds[1],
                            shadow | (linux_flags & LINUX_O_DIRECT));

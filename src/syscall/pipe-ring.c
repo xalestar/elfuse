@@ -208,6 +208,7 @@ typedef struct {
     uint64_t want;      /* bytes still asked for */
     ssize_t done;       /* bytes moved */
     uint32_t buf_flags; /* what a buffer this write adds is */
+    bool spliced;       /* the write is not pipe_write's */
 } ring_xfer_t;
 
 /* Move n bytes between page and the front of the vector, which loses them. The
@@ -276,7 +277,7 @@ static int ring_write_pass(ring_xfer_t *x, bool first)
      * behind stream data loses its boundary.
      */
     size_t chars = x->want & (RING_PAGE - 1);
-    if (first && chars > 0 && m.head != m.tail) {
+    if (first && !x->spliced && chars > 0 && m.head != m.tail) {
         uint32_t idx = (m.head - 1) & mask;
         ring_buf_t *b = &m.buf[idx];
         uint32_t end = (uint32_t) b->off + b->len;
@@ -381,7 +382,15 @@ int64_t pipe_ring_xfer(pipe_ring_t *ring,
         .iov = iov,
         .iovcnt = iovcnt,
         .buf_flags = st->guest_direct ? RING_BUF_PACKET : RING_BUF_CAN_MERGE,
+        .spliced = st->ring_spliced,
     };
+
+    /* splice, vmsplice and sendfile hand the pipe whole buffers through
+     * add_to_pipe, which neither merges them nor marks them packets, whatever
+     * the write end's O_DIRECT says.
+     */
+    if (x.spliced)
+        x.buf_flags = 0;
     for (int i = 0; i < iovcnt; i++) {
         if (!iov_total_add(x.want, iov[i].iov_len, &x.want))
             return -LINUX_EINVAL;

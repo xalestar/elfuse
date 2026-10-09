@@ -565,7 +565,8 @@ int fd_get_type(int guest_fd);
  * says the data is in a pipe ring and not behind the host fd, and guest_direct
  * that a write to it is a packet. ring_dormant says F_SETFL can still move the
  * pipe into a ring, with ring_epoch the conversion count this was read under
- * (see pipe_ring_stream_enter).
+ * (see pipe_ring_stream_enter). ring_spliced is the one field a caller sets:
+ * the write comes from the splice family and is not pipe_write's.
  */
 typedef struct {
     int type;
@@ -577,6 +578,7 @@ typedef struct {
     bool guest_nonblock;
     bool ring;
     bool ring_dormant;
+    bool ring_spliced;
     bool guest_direct;
 } fd_block_state_t;
 

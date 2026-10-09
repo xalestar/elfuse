@@ -10,7 +10,8 @@
  * Syscalls exercised: pipe2(59), read(63), write(64), readv(65), writev(66),
  *                     fcntl(25), ioctl(29), fstat(80), dup(23), close(57),
  *                     clone(220), wait4(260), rt_sigaction(134), ppoll(73),
- *                     epoll_create1(20), epoll_ctl(21), epoll_pwait(22)
+ *                     epoll_create1(20), epoll_ctl(21), epoll_pwait(22),
+ *                     splice(76), vmsplice(75)
  */
 
 #include <errno.h>
@@ -18,6 +19,7 @@
 #include <poll.h>
 #include <pthread.h>
 #include <signal.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
@@ -459,6 +461,48 @@ static void test_setfl(void)
     close_pair(p);
 }
 
+static void test_splice(void)
+{
+    int p[2], q[2];
+    packet_pipe(p);
+    packet_pipe(q);
+    char path[] = "/tmp/test-pipe-packet-XXXXXX";
+    int file = mkstemp(path);
+    unlink(path);
+    if (file < 0 || write(file, "0123456789", 10) != 10) {
+        printf("scratch file failed: errno=%d\n", errno);
+        _exit(1);
+    }
+
+    /* add_to_pipe sets neither the packet flag nor the merge flag. */
+    off_t off = 0;
+    splice(file, &off, p[1], NULL, 4, 0);
+    splice(file, &off, p[1], NULL, 4, 0);
+    TEST("spliced bytes are not packets");
+    EXPECT_EQ(rd(p[0], 100), 8, "two splices did not read as one run");
+
+    struct iovec iov[2] = {{"ab", 2}, {"cd", 2}};
+    TEST("nor are vmsplice segments");
+    EXPECT_TRUE(vmsplice(p[1], iov, 2, 0) == 4 && rd(p[0], 100) == 4,
+                "two segments did not read as one run");
+
+    wr(p[1], 2);
+    wr(p[1], 3);
+    TEST("pipe to pipe keeps packets");
+    EXPECT_TRUE(splice(p[0], NULL, q[1], NULL, 100, SPLICE_F_NONBLOCK) == 5 &&
+                    rd(q[0], 100) == 2 && rd(q[0], 100) == 3,
+                "the packets did not arrive as they left");
+
+    wr(p[1], 2);
+    wr(p[1], 3);
+    TEST("splice out takes every packet");
+    EXPECT_EQ(splice(p[0], NULL, file, NULL, 100, SPLICE_F_NONBLOCK), 5,
+              "the splice stopped at a packet boundary");
+    close(file);
+    close_pair(p);
+    close_pair(q);
+}
+
 int main(void)
 {
     signal(SIGPIPE, on_sigpipe);
@@ -473,6 +517,7 @@ int main(void)
     test_size();
     test_readiness();
     test_setfl();
+    test_splice();
 
     SUMMARY("test-pipe-packet");
     return fails > 0 ? 1 : 0;

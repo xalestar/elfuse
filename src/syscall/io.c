@@ -3760,6 +3760,7 @@ static int64_t copy_fd_range(const copy_ends_t *ends,
 
     fd_block_state_t in_st = ends->in_st;
     fd_block_state_t out_st = ends->out_st;
+    out_st.ring_spliced = true;
 
     char *buf = malloc(IO_COPY_BUF_SIZE);
     if (!buf)
@@ -4168,6 +4169,12 @@ int64_t sys_splice(guest_t *g,
                          .off_out = off_out,
                          .in_st = in_st,
                          .out_st = out_st};
+
+    /* A buffer spliced from another pipe keeps its packet flag, which a chunk
+     * read from a packet pipe and written to one reproduces. Anything else
+     * arrives as a plain buffer.
+     */
+    st.out_st.ring_spliced = !in_st.ring;
     splice_fail_t f = {0};
     size_t total = 0;
     int64_t ret;
@@ -4252,6 +4259,7 @@ int64_t sys_vmsplice(guest_t *g,
     int64_t err = host_fd_ref_open_io_state(fd, &host_ref, NULL, &vm_st);
     if (err < 0)
         return err;
+    vm_st.ring_spliced = true;
     if (nr_segs > 1024) {
         host_fd_ref_close(&host_ref);
         return -LINUX_EINVAL; /* UIO_MAXIOV */

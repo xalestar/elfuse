@@ -337,6 +337,12 @@ static void test_size(void)
     TEST("a pipe in use does not shrink");
     EXPECT_ERRNO(fcntl(p[1], F_SETPIPE_SZ, PAGE), EBUSY,
                  "two packets fit into one buffer");
+
+    TEST("a grown full pipe has room");
+    EXPECT_TRUE(polled(p[1], POLLOUT) == 0 &&
+                    fcntl(p[1], F_SETPIPE_SZ, 4 * PAGE) == 4 * PAGE &&
+                    polled(p[1], POLLOUT) == POLLOUT,
+                "poll did not see the new buffers");
     close_pair(p);
 }
 

@@ -1789,9 +1789,21 @@ static int64_t fcntl_pipe_size(int fd,
     if (!ring)
         return cmd == 1031 ? (int64_t) arg : -LINUX_EINVAL;
 
-    int64_t rc = cmd == 1031 ? pipe_ring_set_size(ring, snap->host_fd,
-                                                  (unsigned int) arg)
-                             : pipe_ring_get_size(ring);
+    if (cmd == 1032) {
+        int64_t size = pipe_ring_get_size(ring);
+        pipe_ring_release(ring);
+        return size;
+    }
+
+    /* A full pipe that grows has room at once, and showing it means taking the
+     * filler out through a read end. fd may be the write end.
+     */
+    int rd_fd = -1;
+    fd_lifetime_t *reader = fd_pipe_ring_pin_reader(ring, &rd_fd);
+    int64_t rc =
+        pipe_ring_set_size(ring, snap->host_fd, rd_fd, (unsigned int) arg);
+    if (reader)
+        fd_lifetime_release(reader);
     pipe_ring_release(ring);
     return rc;
 }

@@ -766,8 +766,8 @@ int fd_to_host_dup(int guest_fd);
  */
 typedef struct fd_lifetime fd_lifetime_t;
 
-/* Pin a host pipe read end among the slots that name `ring`, for the F_SETFL
- * that drains it.
+/* Pin a host pipe read end among the slots that name `ring`, for a caller on
+ * the write end that has to take bytes out of the host pipe.
  *
  * Returns the pin with *host_fd set, or NULL when this process holds no read
  * end. The caller releases the pin.

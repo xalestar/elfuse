@@ -99,10 +99,14 @@ int64_t pipe_ring_xfer(pipe_ring_t *ring,
 int64_t pipe_ring_queued(pipe_ring_t *ring, int32_t *bytes);
 
 /* F_GETPIPE_SZ and F_SETPIPE_SZ. Each returns the ring's capacity in bytes or a
- * negative Linux errno. host_fd is either end of the host pipe.
+ * negative Linux errno. host_fd is either end of the host pipe, and rd_fd its
+ * read end where the caller has one, or -1.
  */
 int64_t pipe_ring_get_size(pipe_ring_t *ring);
-int64_t pipe_ring_set_size(pipe_ring_t *ring, int host_fd, unsigned int arg);
+int64_t pipe_ring_set_size(pipe_ring_t *ring,
+                           int host_fd,
+                           int rd_fd,
+                           unsigned int arg);
 
 /* pipe_full: every buffer is in use. A ring that cannot be read is full. */
 bool pipe_ring_full(pipe_ring_t *ring);

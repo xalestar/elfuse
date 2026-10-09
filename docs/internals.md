@@ -930,6 +930,7 @@ pipe, and `F_SETFL` records `O_DIRECT` without effect.
 | `O_DIRECT` belongs to the open file description, so a child that sets or clears it changes the parent's writes | the flag is per process, like every status flag elfuse keeps itself |
 | `select` reports a read end not writable; `poll` and `epoll` report a hangup even when asked for no events; edge-triggered `epoll` reports no edge after a read | the host pipe answers these three, as it does for a stream pipe: writable, no report, and one extra edge while packets stay queued |
 | `F_SETPIPE_SZ` above 1 MiB succeeds with `CAP_SYS_RESOURCE` | `EPERM` |
+| a full pipe that `F_SETPIPE_SZ` grows is writable to `poll` at once | at once when the caller's process holds a read end, which is what drains the filler; otherwise after the reader's next `read` |
 | `tee` works | `EINVAL`, as for every pipe |
 
 ## USB Device Passthrough

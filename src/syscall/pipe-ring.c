@@ -524,7 +524,10 @@ static bool ring_resize(const pipe_ring_t *ring,
     return true;
 }
 
-int64_t pipe_ring_set_size(pipe_ring_t *ring, int host_fd, unsigned int arg)
+int64_t pipe_ring_set_size(pipe_ring_t *ring,
+                           int host_fd,
+                           int rd_fd,
+                           unsigned int arg)
 {
     /* round_pipe_size and pipe_set_size, fs/pipe.c. A request above
      * fs.pipe-max-size is refused the way it is for a caller without
@@ -555,12 +558,14 @@ int64_t pipe_ring_set_size(pipe_ring_t *ring, int host_fd, unsigned int arg)
     } else if (slots != m.slots && !ring_resize(ring, &m, slots, pages)) {
         rc = -LINUX_EIO;
     } else {
-        /* Whichever end host_fd is can do one of these and fails the other. The
-         * end that cannot is put right by the next transfer on the other side.
+        /* A ring that became full needs its filler, which takes a write end,
+         * and one that stopped being full has to lose it, which takes a read
+         * end. Whichever the caller lacks is put right by the next transfer on
+         * that side, and until then poll answers for the old size.
          */
         uint32_t used = m.head - m.tail;
         ring_tokens_add(host_fd, 0, used == m.slots);
-        ring_tokens_trim(host_fd, used, used == m.slots);
+        ring_tokens_trim(rd_fd >= 0 ? rd_fd : host_fd, used, used == m.slots);
         rc = (int64_t) m.slots * RING_PAGE;
     }
     ring_unlock(ring);

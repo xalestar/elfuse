@@ -332,10 +332,12 @@ int fork_ipc_send_fd_table(int ipc_sock)
         fd_entries[num_fds].seals = fd_table[i].seals;
 
         /* Referenced so a sibling's close cannot retire the state file before
-         * sendmsg has duplicated it.
+         * sendmsg has duplicated it. A dormant ring has no state file, and the
+         * child holding its host pipe ends any chance of converting it.
          */
-        fd_entries[num_fds].has_ring = fd_table[i].ring != NULL;
-        if (fd_table[i].ring) {
+        fd_entries[num_fds].has_ring =
+            fd_table[i].ring && pipe_ring_leaves_process(fd_table[i].ring);
+        if (fd_entries[num_fds].has_ring) {
             pipe_ring_ref(fd_table[i].ring);
             rings[num_rings] = fd_table[i].ring;
             ring_fds_to_send[num_rings++] =

@@ -448,6 +448,49 @@ static ssize_t io_xfer_once(int host_fd,
     return is_read ? readv(host_fd, iov, iovcnt) : writev(host_fd, iov, iovcnt);
 }
 
+/* io_xfer_once on a host pipe whose ring is dormant, kept apart from the
+ * F_SETFL that would drain the pipe into the ring under it (see
+ * pipe_ring_stream_enter).
+ *
+ * Returns true with *ret and errno as io_xfer_once leaves them.
+ *
+ * Returns false, with nothing transferred and *st classified afresh, once the
+ * pipe's data is in its ring.
+ */
+static bool io_xfer_once_guarded(int fd,
+                                 fd_block_state_t *st,
+                                 int host_fd,
+                                 bool is_read,
+                                 struct iovec *iov,
+                                 int iovcnt,
+                                 ssize_t *ret)
+{
+    while (st->ring_dormant && !pipe_ring_stream_enter(st->ring_epoch)) {
+        pipe_ring_settle();
+        fd_block_state_t now = fd_block_state(fd);
+        if (now.type == FD_CLOSED || now.generation != st->generation) {
+            *ret = -1;
+            errno = EBADF;
+            return true;
+        }
+        *st = now;
+        if (st->ring)
+            return false;
+    }
+
+    /* A ring that stopped being dormant without becoming active left the
+     * process, and nothing will convert it now.
+     */
+    bool entered = st->ring_dormant;
+    *ret = io_xfer_once(host_fd, false, is_read, iov, iovcnt);
+    if (entered) {
+        int saved_errno = errno;
+        pipe_ring_stream_leave();
+        errno = saved_errno;
+    }
+    return true;
+}
+
 /* Drop the entries a partial transfer already moved and trim the first
  * survivor.
  *
@@ -563,6 +606,11 @@ int64_t io_xfer(int fd,
     int xfer_errno = 0;
     int64_t fail = 0;
     unsigned backoff = 0, spins = 0;
+
+    /* A pipe F_SETFL can still move into a ring, with a sibling thread alive to
+     * do it while this one transfers.
+     */
+    bool guard = st.ring_dormant && !thread_is_single_active();
     for (;;) {
         if (wait_first) {
             int64_t waited = io_wait_fd_or_interrupted(host_fd, events);
@@ -575,7 +623,19 @@ int64_t io_xfer(int fd,
             }
         }
 
-        ssize_t ret = io_xfer_once(host_fd, is_socket, is_read, iov, iovcnt);
+        ssize_t ret;
+        if (!guard) {
+            ret = io_xfer_once(host_fd, is_socket, is_read, iov, iovcnt);
+        } else if (!io_xfer_once_guarded(fd, &st, host_fd, is_read, iov, iovcnt,
+                                         &ret)) {
+            /* F_SETFL moved the pipe into a ring under this transfer. A write
+             * reports what it had already moved; anything else starts over on
+             * the ring.
+             */
+            if (total > 0)
+                break;
+            return io_xfer(fd, host_fd, events, iov, iovcnt, out, &st);
+        }
         if (ret < 0) {
             /* Everything below can call something that sets errno -- the pty
              * lookup takes two locks, and the socket case of

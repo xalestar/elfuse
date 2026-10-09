@@ -1206,7 +1206,7 @@ uint64_t fd_current_generation(int guest_fd)
     return snap.generation;
 }
 
-pipe_ring_t *fd_pipe_ring_pin(int guest_fd, uint64_t generation)
+pipe_ring_t *fd_pipe_ring_alias(int guest_fd, uint64_t generation)
 {
     if (!RANGE_CHECK(guest_fd, 0, FD_TABLE_SIZE))
         return NULL;
@@ -1218,6 +1218,67 @@ pipe_ring_t *fd_pipe_ring_pin(int guest_fd, uint64_t generation)
         pipe_ring_ref(ring);
     pthread_mutex_unlock(&fd_lock);
     return ring;
+}
+
+pipe_ring_t *fd_pipe_ring_pin(int guest_fd, uint64_t generation)
+{
+    pipe_ring_t *ring = fd_pipe_ring_alias(guest_fd, generation);
+    if (ring && !pipe_ring_active(ring)) {
+        pipe_ring_release(ring);
+        ring = NULL;
+    }
+    return ring;
+}
+
+bool fd_pipe_ring_blocks_passing(int guest_fd)
+{
+    if (!RANGE_CHECK(guest_fd, 0, FD_TABLE_SIZE))
+        return false;
+    pthread_mutex_lock(&fd_lock);
+    pipe_ring_t *ring = fd_table[guest_fd].ring;
+    if (ring)
+        pipe_ring_ref(ring);
+    pthread_mutex_unlock(&fd_lock);
+    if (!ring)
+        return false;
+
+    bool active = pipe_ring_leaves_process(ring);
+    pipe_ring_release(ring);
+    return active;
+}
+
+fd_lifetime_t *fd_pipe_ring_pin_reader(const pipe_ring_t *ring, int *host_fd)
+{
+    /* Which end a slot is, only the host pipe knows, and asking it is a host
+     * call the table lock is not held across. So every holder is pinned under
+     * the lock and asked after it.
+     */
+    fd_lifetime_t **pins = calloc(FD_TABLE_SIZE, sizeof(*pins));
+    if (!pins)
+        return NULL;
+    int count = 0;
+    pthread_mutex_lock(&fd_lock);
+    for (int fd = 0; fd < FD_TABLE_SIZE; fd++) {
+        if (fd_table[fd].type == FD_CLOSED || fd_table[fd].ring != ring)
+            continue;
+        fd_lifetime_t *pin = fd_lifetime_pin_locked(fd);
+        if (pin)
+            pins[count++] = pin;
+    }
+    pthread_mutex_unlock(&fd_lock);
+
+    fd_lifetime_t *reader = NULL;
+    for (int i = 0; i < count; i++) {
+        int fl = reader ? -1 : fcntl(pins[i]->host_fd, F_GETFL);
+        if (fl >= 0 && (fl & O_ACCMODE) == O_RDONLY) {
+            reader = pins[i];
+            *host_fd = pins[i]->host_fd;
+        } else {
+            fd_lifetime_release(pins[i]);
+        }
+    }
+    free(pins);
+    return reader;
 }
 
 bool fd_pipe_ring_attach(int guest_fd, pipe_ring_t *ring)

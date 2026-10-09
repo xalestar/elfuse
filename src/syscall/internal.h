@@ -489,13 +489,31 @@ bool fd_snapshot(int guest_fd, fd_entry_t *out);
  */
 uint64_t fd_current_generation(int guest_fd);
 
-/* The pipe ring of a guest fd, referenced for the caller, or NULL when the slot
- * has none or no longer holds the file `generation` was read from.
+/* The pipe ring that holds a guest fd's data, referenced for the caller. NULL
+ * when the host pipe holds it, or the slot no longer holds the file
+ * `generation` was read from.
  */
 struct pipe_ring *fd_pipe_ring_pin(int guest_fd, uint64_t generation);
 
+/* The same, whether or not the ring is active yet: what a new slot made from
+ * this one has to share.
+ */
+struct pipe_ring *fd_pipe_ring_alias(int guest_fd, uint64_t generation);
+
 /* Give an open slot a reference on `ring`. False when the slot is closed. */
 bool fd_pipe_ring_attach(int guest_fd, struct pipe_ring *ring);
+
+/* The host fd behind guest_fd is about to be passed over SCM_RIGHTS. True when
+ * it is a pipe in packet mode, which cannot be passed: the receiver would hold
+ * the host pipe and its tokens without the ring that has the data. A pipe whose
+ * ring is still dormant passes as the host pipe it is, and stays one.
+ */
+bool fd_pipe_ring_blocks_passing(int guest_fd);
+
+/* From syscall/pipe-ring.h, for fd_block_state_of below. */
+bool pipe_ring_active(const struct pipe_ring *ring);
+bool pipe_ring_dormant(const struct pipe_ring *ring);
+uint32_t pipe_ring_epoch(void);
 
 /* Snapshot an fd entry AND dup its host fd in a single fd_lock critical
  * section. Eliminates the TOCTOU window between reading the type/metadata and
@@ -545,16 +563,20 @@ int fd_get_type(int guest_fd);
  * rides along so a write path can reject a sealed memfd from the state it
  * pinned, rather than from a second lookup that may describe another file. ring
  * says the data is in a pipe ring and not behind the host fd, and guest_direct
- * that a write to it is a packet.
+ * that a write to it is a packet. ring_dormant says F_SETFL can still move the
+ * pipe into a ring, with ring_epoch the conversion count this was read under
+ * (see pipe_ring_stream_enter).
  */
 typedef struct {
     int type;
     uint64_t generation;
     unsigned seals;
+    uint32_t ring_epoch;
     bool can_block;
     bool nonblock_owned;
     bool guest_nonblock;
     bool ring;
+    bool ring_dormant;
     bool guest_direct;
 } fd_block_state_t;
 
@@ -741,6 +763,15 @@ int fd_to_host_dup(int guest_fd);
  * fdtable.c; opaque to every caller.
  */
 typedef struct fd_lifetime fd_lifetime_t;
+
+/* Pin a host pipe read end among the slots that name `ring`, for the F_SETFL
+ * that drains it.
+ *
+ * Returns the pin with *host_fd set, or NULL when this process holds no read
+ * end. The caller releases the pin.
+ */
+fd_lifetime_t *fd_pipe_ring_pin_reader(const struct pipe_ring *ring,
+                                       int *host_fd);
 
 /* Pin the host fd of a live slot and snapshot the entry, in one fd_lock window.
  * The pin keeps the host descriptor open for the duration of a host call even
@@ -1143,16 +1174,25 @@ static inline int64_t host_dirfd_ref_open_pair(guest_fd_t olddirfd,
  */
 static inline fd_block_state_t fd_block_state_of(const fd_entry_t *e)
 {
-    return (fd_block_state_t) {
+    fd_block_state_t st = {
         .type = e->type,
         .generation = e->generation,
         .seals = e->seals,
         .can_block = e->can_block,
         .nonblock_owned = e->nonblock_owned,
         .guest_nonblock = (e->linux_flags & LINUX_O_NONBLOCK) != 0,
-        .ring = e->ring != NULL,
         .guest_direct = (e->linux_flags & LINUX_O_DIRECT) != 0,
     };
+
+    /* The epoch is read before the two states it qualifies, so a conversion
+     * that lands in between leaves an epoch already out of date.
+     */
+    if (e->ring) {
+        st.ring_epoch = pipe_ring_epoch();
+        st.ring = pipe_ring_active(e->ring);
+        st.ring_dormant = pipe_ring_dormant(e->ring);
+    }
+    return st;
 }
 
 /* host_fd_ref_open_io() that also reports the fd generation the reference was

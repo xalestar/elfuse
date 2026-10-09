@@ -984,7 +984,7 @@ int64_t sys_openat_path(guest_t *g,
                  */
                 if (alias_src.ring)
                     spec.ring =
-                        fd_pipe_ring_pin(alias_fd, alias_src.generation);
+                        fd_pipe_ring_alias(alias_fd, alias_src.generation);
             }
 
             /* The virtual-path stamp follows the same dup: opening a magic link
@@ -1438,11 +1438,11 @@ static int duplicate_guest_fd(int src_fd,
     fd_alias_spec_t spec = fd_alias_of(src_fd, &src_snap);
     spec.linux_flags |= linux_flags;
 
-    /* An alias of a pipe in packet mode reads and writes the same ring. A
-     * source that closed since the snapshot leaves nothing to alias.
+    /* An alias of a pipe shares its ring, active or dormant. A source that
+     * closed since the snapshot leaves nothing to alias.
      */
     if (src_snap.ring) {
-        spec.ring = fd_pipe_ring_pin(src_fd, src_snap.generation);
+        spec.ring = fd_pipe_ring_alias(src_fd, src_snap.generation);
         if (!spec.ring) {
             proc_pty_forget_host_fd(new_host_fd);
             close(new_host_fd);
@@ -1748,6 +1748,34 @@ static int64_t fcntl_flock_wait(guest_t *g,
     }
 }
 
+/* F_SETFL has set O_DIRECT on fd. Packet mode is decided as each write happens
+ * and a host pipe would lose the boundary, so a write end whose pipe the host
+ * still carries moves into a ring here, with whatever a read end in this
+ * process has queued. Nothing else changes: the flag does nothing on a read
+ * end, and a pipe another process holds stays a host pipe (see
+ * pipe_ring_leaves_process).
+ */
+static void pipe_enter_packet_mode(int fd, const fd_entry_t *snap, int host_fd)
+{
+    pipe_ring_t *ring =
+        snap->ring ? fd_pipe_ring_alias(fd, snap->generation) : NULL;
+    if (!ring)
+        return;
+
+    int fl = fcntl(host_fd, F_GETFL);
+    if (pipe_ring_dormant(ring) && fl >= 0 && (fl & O_ACCMODE) == O_WRONLY) {
+        /* With no read end in this process the pipe has no reader at all, and
+         * what it holds is past reading.
+         */
+        int rd_fd = -1;
+        fd_lifetime_t *reader = fd_pipe_ring_pin_reader(ring, &rd_fd);
+        pipe_ring_convert(ring, rd_fd, host_fd);
+        if (reader)
+            fd_lifetime_release(reader);
+    }
+    pipe_ring_release(ring);
+}
+
 /* F_SETPIPE_SZ (1031) and F_GETPIPE_SZ (1032). A pipe in packet mode answers
  * both from its ring. For any other fd the two keep the answers they had: macOS
  * cannot size a host pipe, so a new size is accepted without being applied.
@@ -1982,6 +2010,8 @@ int64_t sys_fcntl(guest_t *g, int fd, int cmd, uint64_t arg)
         if (shadow_setfl)
             fd_set_shadow_flags(fd, fd_snap.generation, shadow_setfl,
                                 (int) arg);
+        if ((int) arg & LINUX_O_DIRECT)
+            pipe_enter_packet_mode(fd, &fd_snap, host_ref.fd);
 
         /* The guest's O_NONBLOCK for an owned fd lives in the shadow, which is
          * what the transfer paths and F_GETFL read. It reaches every dup alias
@@ -2966,17 +2996,19 @@ int64_t sys_pipe2(guest_t *g, uint64_t fds_gva, int linux_flags)
     if (pipe(host_fds) < 0)
         return linux_errno();
 
-    /* Packet mode needs the buffer ring: the host pipe is a byte stream. */
-    pipe_ring_t *ring = NULL;
-    if (linux_flags & LINUX_O_DIRECT) {
-        ring = pipe_ring_create();
-        if (!ring) {
-            int saved_errno = errno;
-            close(host_fds[0]);
-            close(host_fds[1]);
-            errno = saved_errno;
-            return linux_errno();
-        }
+    /* Packet mode needs the buffer ring: the host pipe is a byte stream. A pipe
+     * made without O_DIRECT takes a dormant ring, which is all F_SETFL needs to
+     * find later, and does without one when there is no memory for it.
+     */
+    bool direct = (linux_flags & LINUX_O_DIRECT) != 0;
+    pipe_ring_t *ring =
+        direct ? pipe_ring_create() : pipe_ring_create_dormant();
+    if (!ring && direct) {
+        int saved_errno = errno;
+        close(host_fds[0]);
+        close(host_fds[1]);
+        errno = saved_errno;
+        return linux_errno();
     }
 
     int guest_fds[2];
@@ -3002,15 +3034,16 @@ int64_t sys_pipe2(guest_t *g, uint64_t fds_gva, int linux_flags)
         return linux_errno();
     }
 
-    /* Each slot takes its own reference, and this function's goes back. The
-     * ring's token writes rely on O_NONBLOCK, so the one case where fd_alloc
-     * did not set it is set here.
+    /* Each slot takes its own reference, and this function's goes back. A
+     * ring's token transfers must not block, which holds once fd_alloc owns
+     * O_NONBLOCK on both ends. Only a failing fcntl stops that, and such a pipe
+     * stays a host pipe.
      */
     if (ring) {
-        for (int i = 0; i < 2; i++) {
-            fd_pipe_ring_attach(guest_fds[i], ring);
-            if (!fd_block_state(guest_fds[i]).nonblock_owned)
-                fd_set_nonblock(host_fds[i]);
+        if (fd_block_state(guest_fds[0]).nonblock_owned &&
+            fd_block_state(guest_fds[1]).nonblock_owned) {
+            fd_pipe_ring_attach(guest_fds[0], ring);
+            fd_pipe_ring_attach(guest_fds[1], ring);
         }
         pipe_ring_release(ring);
     }

@@ -61,6 +61,15 @@ static void set_fl(int fd, int set, int clear)
     fcntl(fd, F_SETFL, (fcntl(fd, F_GETFL) | set) & ~clear);
 }
 
+static void stream_pipe(int p[2])
+{
+    if (pipe(p) != 0) {
+        printf("pipe failed: errno=%d\n", errno);
+        _exit(1);
+    }
+    set_fl(p[0], O_NONBLOCK, 0);
+}
+
 static void packet_pipe(int p[2])
 {
     if (pipe2(p, O_DIRECT) != 0) {
@@ -88,6 +97,15 @@ static void *read_later(void *arg)
     char buf[PAGE];
     usleep(100000);
     return (void *) read(*(int *) arg, buf, sizeof(buf));
+}
+
+static long two_reads[2];
+
+static void *read_twice(void *arg)
+{
+    two_reads[0] = rd(*(int *) arg, 100);
+    two_reads[1] = rd(*(int *) arg, 100);
+    return NULL;
 }
 
 static void *write_later(void *arg)
@@ -376,6 +394,71 @@ static void test_readiness(void)
     close(p[1]);
 }
 
+static void test_setfl(void)
+{
+    int p[2];
+    stream_pipe(p);
+    set_fl(p[1], O_DIRECT, 0);
+    wr(p[1], 2);
+    wr(p[1], 3);
+    TEST("F_SETFL starts packets");
+    EXPECT_TRUE(rd(p[0], 100) == 2 && rd(p[0], 100) == 3,
+                "a pipe given O_DIRECT later still wrote a stream");
+    close_pair(p);
+
+    /* pipe_write merges a short write into a stream buffer with room before it
+     * asks about packets, so the boundary starts once that buffer is gone.
+     */
+    stream_pipe(p);
+    wr(p[1], 2);
+    set_fl(p[1], O_DIRECT, 0);
+    wr(p[1], 2);
+    wr(p[1], 2);
+    TEST("short packets join a stream");
+    EXPECT_TRUE(rd(p[0], 100) == 6 && rd(p[0], 100) == -EAGAIN,
+                "queued stream bytes and two packets were not one read");
+    wr(p[1], 2);
+    wr(p[1], 2);
+    TEST("and packets follow once empty");
+    EXPECT_TRUE(rd(p[0], 100) == 2 && rd(p[0], 100) == 2,
+                "the emptied pipe did not keep boundaries");
+    close_pair(p);
+
+    stream_pipe(p);
+    wr(p[1], PAGE);
+    set_fl(p[1], O_DIRECT, 0);
+    wr(p[1], 2);
+    wr(p[1], 2);
+    TEST("a full stream page takes none");
+    EXPECT_TRUE(rd(p[0], 2 * PAGE) == PAGE + 2 && rd(p[0], 2 * PAGE) == 2,
+                "the read did not end at the first packet");
+    close_pair(p);
+
+    stream_pipe(p);
+    set_fl(p[0], O_DIRECT, 0);
+    wr(p[1], 2);
+    wr(p[1], 2);
+    TEST("read end O_DIRECT does nothing");
+    EXPECT_TRUE((fcntl(p[0], F_GETFL) & O_DIRECT) && rd(p[0], 100) == 4,
+                "O_DIRECT on the read end changed the writes");
+    close_pair(p);
+
+    /* The reader is parked in read() when the mode changes under it. */
+    stream_pipe(p);
+    set_fl(p[0], 0, O_NONBLOCK);
+    pthread_t t;
+    pthread_create(&t, NULL, read_twice, &p[0]);
+    usleep(100000);
+    set_fl(p[1], O_DIRECT, 0);
+    wr(p[1], 2);
+    wr(p[1], 3);
+    pthread_join(t, NULL);
+    TEST("a blocked reader gets packets");
+    EXPECT_TRUE(two_reads[0] == 2 && two_reads[1] == 3,
+                "the waiting read did not return the first packet alone");
+    close_pair(p);
+}
+
 int main(void)
 {
     signal(SIGPIPE, on_sigpipe);
@@ -389,6 +472,7 @@ int main(void)
     test_queries();
     test_size();
     test_readiness();
+    test_setfl();
 
     SUMMARY("test-pipe-packet");
     return fails > 0 ? 1 : 0;

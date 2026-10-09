@@ -85,6 +85,12 @@ static int translate_scm_rights_fds(int *fds, size_t nfds)
             free(heap_host_fds);
             return -LINUX_EBADF;
         }
+
+        /* Refused rather than delivered as a pipe that reads its own tokens. */
+        if (fd_pipe_ring_blocks_passing(guest_fd)) {
+            free(heap_host_fds);
+            return -LINUX_EINVAL;
+        }
         host_fds[i] = host_fd;
     }
 

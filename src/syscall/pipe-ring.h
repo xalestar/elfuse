@@ -31,6 +31,43 @@ typedef struct pipe_ring pipe_ring_t;
  */
 pipe_ring_t *pipe_ring_create(void);
 
+/* A pipe the host pipe still carries whole, which pipe_ring_convert can move
+ * into a ring later. The caller owns its one reference.
+ *
+ * Returns NULL when out of memory.
+ */
+pipe_ring_t *pipe_ring_create_dormant(void);
+
+/* True once the ring holds the pipe's data, which it then always does, and true
+ * while pipe_ring_convert can still make it so.
+ */
+bool pipe_ring_active(const pipe_ring_t *ring);
+bool pipe_ring_dormant(const pipe_ring_t *ring);
+
+/* The host pipe is about to reach another process. True when the ring is active
+ * and its state file has to go along. A dormant ring is left a host pipe for
+ * good: the other process could not be told of a later conversion.
+ */
+bool pipe_ring_leaves_process(pipe_ring_t *ring);
+
+/* Move a dormant ring's pipe into packet mode. wr_fd is the host pipe's write
+ * end. rd_fd is its read end, whose queued bytes become the ring's first
+ * buffers, or -1 when the caller knows the pipe is empty. A ring that is not
+ * dormant any more, or one the host refuses a state file for, stays as it is.
+ */
+void pipe_ring_convert(pipe_ring_t *ring, int rd_fd, int wr_fd);
+
+/* A host transfer on a pipe whose ring is dormant runs between an enter that
+ * returned true and a leave, which keeps pipe_ring_convert from draining the
+ * host pipe under it. epoch is pipe_ring_epoch as it read when the caller
+ * classified the fd. False means a conversion ran or is running since: wait for
+ * pipe_ring_settle, classify the fd again, and transfer on what it is now.
+ */
+uint32_t pipe_ring_epoch(void);
+bool pipe_ring_stream_enter(uint32_t epoch);
+void pipe_ring_stream_leave(void);
+void pipe_ring_settle(void);
+
 /* The ring in a state file another elfuse process created. Owns state_fd from
  * here on, and closes it when it returns NULL with errno set.
  */

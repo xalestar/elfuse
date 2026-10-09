@@ -62,7 +62,13 @@ _Static_assert(sizeof(ring_meta_t) <= RING_DATA_OFF,
 
 struct pipe_ring {
     _Atomic unsigned int refs;
-    int state_fd;
+
+    /* -1 while dormant. pipe_ring_convert publishes the descriptor with a
+     * release store once the file holds the pipe's data, and it never changes
+     * after that.
+     */
+    _Atomic int state_fd;
+    _Atomic bool left_process; /* dormant, and never to convert */
     ino_t ino;
 };
 
@@ -73,6 +79,20 @@ struct pipe_ring {
 static pthread_mutex_t pipe_ring_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static const uint8_t ring_filler[RING_HOST_PIPE_MAX];
+
+/* pipe_ring_convert against the host transfers still running on dormant pipes.
+ * A transfer counts itself in and then looks for a conversion; the conversion
+ * raises its flag and then waits for the count. Sequential consistency is what
+ * makes one of the two see the other.
+ */
+static _Atomic unsigned int ring_stream_xfers;
+static _Atomic bool ring_converting;
+static _Atomic uint32_t ring_epoch;
+
+static int ring_fd(const pipe_ring_t *ring)
+{
+    return atomic_load_explicit(&ring->state_fd, memory_order_acquire);
+}
 
 static off_t ring_data_off(uint32_t idx)
 {
@@ -93,7 +113,7 @@ static int64_t ring_lock(pipe_ring_t *ring)
 {
     for (unsigned tries = 0;; tries++) {
         pthread_mutex_lock(&pipe_ring_lock);
-        if (ring_setlk(ring->state_fd, F_WRLCK) == 0)
+        if (ring_setlk(ring_fd(ring), F_WRLCK) == 0)
             return 0;
         int saved_errno = errno;
         pthread_mutex_unlock(&pipe_ring_lock);
@@ -113,7 +133,7 @@ static int64_t ring_lock(pipe_ring_t *ring)
 
 static void ring_unlock(pipe_ring_t *ring)
 {
-    ring_setlk(ring->state_fd, F_UNLCK);
+    ring_setlk(ring_fd(ring), F_UNLCK);
     pthread_mutex_unlock(&pipe_ring_lock);
 }
 
@@ -123,7 +143,7 @@ static void ring_unlock(pipe_ring_t *ring)
 static bool ring_load(const pipe_ring_t *ring, ring_meta_t *m)
 {
     errno = EIO;
-    if (pread(ring->state_fd, m, sizeof(*m), 0) != (ssize_t) sizeof(*m))
+    if (pread(ring_fd(ring), m, sizeof(*m), 0) != (ssize_t) sizeof(*m))
         return false;
 
     uint32_t used = m->head - m->tail;
@@ -140,7 +160,7 @@ static bool ring_load(const pipe_ring_t *ring, ring_meta_t *m)
 
 static bool ring_store(const pipe_ring_t *ring, const ring_meta_t *m)
 {
-    if (pwrite(ring->state_fd, m, sizeof(*m), 0) == (ssize_t) sizeof(*m))
+    if (pwrite(ring_fd(ring), m, sizeof(*m), 0) == (ssize_t) sizeof(*m))
         return true;
     errno = EIO;
     return false;
@@ -219,7 +239,7 @@ static bool ring_put(ring_xfer_t *x, uint32_t idx, uint32_t at, size_t n)
 {
     uint8_t page[RING_PAGE];
     ring_iov_move(x, page, n, false);
-    if (pwrite(x->ring->state_fd, page, n, ring_data_off(idx) + at) !=
+    if (pwrite(ring_fd(x->ring), page, n, ring_data_off(idx) + at) !=
         (ssize_t) n) {
         errno = EIO;
         return false;
@@ -303,7 +323,7 @@ static int ring_read_pass(ring_xfer_t *x)
         uint32_t idx = m.tail & mask;
         ring_buf_t *b = &m.buf[idx];
         size_t n = b->len < x->want ? b->len : x->want;
-        if (pread(x->ring->state_fd, page, n, ring_data_off(idx) + b->off) !=
+        if (pread(ring_fd(x->ring), page, n, ring_data_off(idx) + b->off) !=
             (ssize_t) n) {
             errno = EIO;
             return -1;
@@ -480,12 +500,12 @@ static bool ring_resize(const pipe_ring_t *ring,
     for (uint32_t i = 0; i < used; i++) {
         uint32_t idx = (m->tail + i) & (m->slots - 1);
         next.buf[i] = m->buf[idx];
-        if (pread(ring->state_fd, pages + (size_t) i * RING_PAGE, RING_PAGE,
+        if (pread(ring_fd(ring), pages + (size_t) i * RING_PAGE, RING_PAGE,
                   ring_data_off(idx)) < 0)
             return false;
     }
     for (uint32_t i = 0; i < used; i++) {
-        if (pwrite(ring->state_fd, pages + (size_t) i * RING_PAGE, RING_PAGE,
+        if (pwrite(ring_fd(ring), pages + (size_t) i * RING_PAGE, RING_PAGE,
                    ring_data_off(i)) != (ssize_t) RING_PAGE)
             return false;
     }
@@ -553,45 +573,195 @@ void pipe_ring_stat(const pipe_ring_t *ring, struct stat *st)
     st->st_blksize = RING_PAGE;
 }
 
+static pipe_ring_t *ring_alloc(int state_fd, ino_t ino)
+{
+    pipe_ring_t *ring = malloc(sizeof(*ring));
+    if (!ring)
+        return NULL;
+    atomic_init(&ring->refs, 1);
+    atomic_init(&ring->state_fd, state_fd);
+    atomic_init(&ring->left_process, false);
+    ring->ino = ino;
+    return ring;
+}
+
+/* A state file holding an empty ring, or -1 with errno set. Nothing shares it
+ * yet, so the caller may close it without pipe_ring_lock.
+ */
+static int ring_file_create(ino_t *ino)
+{
+    int fd = tmpfile_anon("pipe");
+    if (fd < 0)
+        return -1;
+
+    struct stat st;
+    ring_meta_t m = {.magic = RING_MAGIC, .slots = RING_DEF_SLOTS};
+    if (fstat(fd, &st) < 0 || fd_set_cloexec(fd) < 0 ||
+        pwrite(fd, &m, sizeof(m), 0) != (ssize_t) sizeof(m)) {
+        close(fd);
+        errno = EIO;
+        return -1;
+    }
+    *ino = st.st_ino;
+    return fd;
+}
+
+pipe_ring_t *pipe_ring_create(void)
+{
+    ino_t ino;
+    int fd = ring_file_create(&ino);
+    if (fd < 0)
+        return NULL;
+    pipe_ring_t *ring = ring_alloc(fd, ino);
+    if (!ring) {
+        close(fd);
+        errno = ENOMEM;
+    }
+    return ring;
+}
+
+pipe_ring_t *pipe_ring_create_dormant(void)
+{
+    return ring_alloc(-1, 0);
+}
+
 pipe_ring_t *pipe_ring_adopt(int state_fd)
 {
     struct stat st;
     pipe_ring_t *ring = NULL;
     if (fstat(state_fd, &st) == 0 && fd_set_cloexec(state_fd) == 0)
-        ring = malloc(sizeof(*ring));
+        ring = ring_alloc(state_fd, st.st_ino);
     if (!ring) {
         int saved_errno = errno;
         pthread_mutex_lock(&pipe_ring_lock);
         close(state_fd);
         pthread_mutex_unlock(&pipe_ring_lock);
         errno = saved_errno;
-        return NULL;
     }
-    atomic_init(&ring->refs, 1);
-    ring->state_fd = state_fd;
-    ring->ino = st.st_ino;
     return ring;
 }
 
-pipe_ring_t *pipe_ring_create(void)
+bool pipe_ring_active(const pipe_ring_t *ring)
 {
-    int fd = tmpfile_anon("pipe");
-    if (fd < 0)
-        return NULL;
+    return ring_fd(ring) >= 0;
+}
 
-    /* Not yet shared, so the close needs no lock. */
+bool pipe_ring_dormant(const pipe_ring_t *ring)
+{
+    return ring_fd(ring) < 0 &&
+           !atomic_load_explicit(&ring->left_process, memory_order_acquire);
+}
+
+bool pipe_ring_leaves_process(pipe_ring_t *ring)
+{
+    /* Under the lock pipe_ring_convert holds from its own test of this flag to
+     * its publish, so the two cannot both win.
+     */
+    pthread_mutex_lock(&pipe_ring_lock);
+    bool active = pipe_ring_active(ring);
+    if (!active)
+        atomic_store_explicit(&ring->left_process, true, memory_order_release);
+    pthread_mutex_unlock(&pipe_ring_lock);
+    return active;
+}
+
+/* Take what the host pipe holds into `fd` as the ring's first buffers. The
+ * bytes were written as a stream, so the buffers take merges, and a short
+ * packet write behind them joins the last one as it does on Linux.
+ *
+ * Returns the buffer count, or -1 with the bytes written back to the host pipe.
+ */
+static int ring_adopt_stream(int fd, int rd_fd, int wr_fd, uint8_t *bytes)
+{
+    ssize_t n, total = 0;
+    while (total < RING_HOST_PIPE_MAX &&
+           (n = read(rd_fd, bytes + total,
+                     (size_t) (RING_HOST_PIPE_MAX - total))) > 0)
+        total += n;
+
     ring_meta_t m = {.magic = RING_MAGIC, .slots = RING_DEF_SLOTS};
-    if (pwrite(fd, &m, sizeof(m), 0) != (ssize_t) sizeof(m)) {
-        close(fd);
-        errno = EIO;
-        return NULL;
+    for (ssize_t at = 0; at < total; at += RING_PAGE) {
+        size_t len = total - at < RING_PAGE ? (size_t) (total - at) : RING_PAGE;
+        m.buf[m.head++] =
+            (ring_buf_t) {.len = (uint16_t) len, .flags = RING_BUF_CAN_MERGE};
     }
-    return pipe_ring_adopt(fd);
+    if (pwrite(fd, bytes, (size_t) total, RING_DATA_OFF) != total ||
+        pwrite(fd, &m, sizeof(m), 0) != (ssize_t) sizeof(m)) {
+        (void) write(wr_fd, bytes, (size_t) total);
+        return -1;
+    }
+    return (int) m.head;
+}
+
+void pipe_ring_convert(pipe_ring_t *ring, int rd_fd, int wr_fd)
+{
+    ino_t ino;
+    int fd = ring_file_create(&ino);
+    uint8_t *bytes = malloc(RING_HOST_PIPE_MAX);
+    if (fd < 0 || !bytes) {
+        if (fd >= 0)
+            close(fd);
+        free(bytes);
+        return;
+    }
+
+    pthread_mutex_lock(&pipe_ring_lock);
+    bool convert = pipe_ring_dormant(ring);
+    if (convert) {
+        atomic_store_explicit(&ring_converting, true, memory_order_seq_cst);
+        while (atomic_load_explicit(&ring_stream_xfers, memory_order_seq_cst) !=
+               0)
+            sched_yield();
+
+        int used = rd_fd < 0 ? 0 : ring_adopt_stream(fd, rd_fd, wr_fd, bytes);
+        convert = used >= 0;
+        if (convert) {
+            ring_tokens_add(wr_fd, (uint32_t) used, used == RING_DEF_SLOTS);
+            ring->ino = ino;
+            atomic_store_explicit(&ring->state_fd, fd, memory_order_release);
+        }
+
+        /* The epoch moves before the flag drops, so a transfer that slips in
+         * behind the flag still finds the epoch it classified under gone.
+         */
+        atomic_fetch_add_explicit(&ring_epoch, 1, memory_order_seq_cst);
+        atomic_store_explicit(&ring_converting, false, memory_order_seq_cst);
+    }
+    if (!convert)
+        close(fd);
+    pthread_mutex_unlock(&pipe_ring_lock);
+    free(bytes);
+}
+
+uint32_t pipe_ring_epoch(void)
+{
+    return atomic_load_explicit(&ring_epoch, memory_order_seq_cst);
+}
+
+bool pipe_ring_stream_enter(uint32_t epoch)
+{
+    atomic_fetch_add_explicit(&ring_stream_xfers, 1, memory_order_seq_cst);
+    if (!atomic_load_explicit(&ring_converting, memory_order_seq_cst) &&
+        atomic_load_explicit(&ring_epoch, memory_order_seq_cst) == epoch)
+        return true;
+    atomic_fetch_sub_explicit(&ring_stream_xfers, 1, memory_order_seq_cst);
+    return false;
+}
+
+void pipe_ring_stream_leave(void)
+{
+    atomic_fetch_sub_explicit(&ring_stream_xfers, 1, memory_order_seq_cst);
+}
+
+void pipe_ring_settle(void)
+{
+    while (atomic_load_explicit(&ring_converting, memory_order_seq_cst))
+        sched_yield();
 }
 
 int pipe_ring_state_fd(const pipe_ring_t *ring)
 {
-    return ring->state_fd;
+    return ring_fd(ring);
 }
 
 void pipe_ring_ref(pipe_ring_t *ring)
@@ -610,9 +780,12 @@ void pipe_ring_release(pipe_ring_t *ring)
 
     /* Callers release on a failure path and read errno afterwards. */
     int saved_errno = errno;
-    pthread_mutex_lock(&pipe_ring_lock);
-    close(ring->state_fd);
-    pthread_mutex_unlock(&pipe_ring_lock);
+    int fd = ring_fd(ring);
+    if (fd >= 0) {
+        pthread_mutex_lock(&pipe_ring_lock);
+        close(fd);
+        pthread_mutex_unlock(&pipe_ring_lock);
+    }
     free(ring);
     errno = saved_errno;
 }

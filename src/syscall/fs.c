@@ -52,6 +52,7 @@ _Static_assert(NAME_MAX == DIRENT64_NAME_MAX,
 #include "syscall/io.h"  /* io_retry_backoff */
 #include "syscall/net.h" /* absock_unregister_fd */
 #include "syscall/path.h"
+#include "syscall/pipe-ring.h"
 #include "syscall/usbdev.h"
 #include "syscall/poll.h" /* epoll_dup_fd */
 #include "syscall/proc.h"
@@ -977,6 +978,13 @@ int64_t sys_openat_path(guest_t *g,
                  * exactly what fd_alias_host_shared claims and no more.
                  */
                 spec = fd_alias_host_shared(&alias_src);
+
+                /* The reopened name still reaches a pipe's ring: the data is
+                 * there, not behind the descriptor the dup copied.
+                 */
+                if (alias_src.ring)
+                    spec.ring =
+                        fd_pipe_ring_pin(alias_fd, alias_src.generation);
             }
 
             /* The virtual-path stamp follows the same dup: opening a magic link
@@ -1012,8 +1020,11 @@ int64_t sys_openat_path(guest_t *g,
             int guest_fd = fd_alloc_opened_host(
                 intercepted, type, linux_flags, min_guest_fd,
                 fd_cleanup_for_type(type), stamp, aliased ? &spec : NULL);
-            if (guest_fd < 0)
+            if (guest_fd < 0) {
+                if (spec.ring)
+                    pipe_ring_release(spec.ring);
                 return linux_errno();
+            }
             return guest_fd;
         }
         if (intercepted == -1) {
@@ -1427,6 +1438,19 @@ static int duplicate_guest_fd(int src_fd,
     fd_alias_spec_t spec = fd_alias_of(src_fd, &src_snap);
     spec.linux_flags |= linux_flags;
 
+    /* An alias of a pipe in packet mode reads and writes the same ring. A
+     * source that closed since the snapshot leaves nothing to alias.
+     */
+    if (src_snap.ring) {
+        spec.ring = fd_pipe_ring_pin(src_fd, src_snap.generation);
+        if (!spec.ring) {
+            proc_pty_forget_host_fd(new_host_fd);
+            close(new_host_fd);
+            errno = EBADF;
+            return -1;
+        }
+    }
+
     /* A directory alias publishes the source's own stream, referenced in the
      * window that snapshotted the slot. Nothing is opened here: the alias is
      * the same open file description as the source, so it must be the same
@@ -1462,6 +1486,8 @@ static int duplicate_guest_fd(int src_fd,
             proc_pty_forget_host_fd(new_host_fd);
             close(new_host_fd);
         }
+        if (spec.ring)
+            pipe_ring_release(spec.ring);
         errno = saved_errno;
         return -1;
     }

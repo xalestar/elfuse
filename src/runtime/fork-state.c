@@ -28,6 +28,7 @@
 #include "syscall/internal.h"
 #include "syscall/io.h"
 #include "syscall/mem.h"
+#include "syscall/pipe-ring.h"
 #include "syscall/proc.h"
 
 int fork_ipc_write_all(int fd, const void *buf, size_t len)
@@ -285,7 +286,9 @@ int fork_ipc_send_fd_table(int ipc_sock)
     ipc_fd_entry_t fd_entries[FD_TABLE_SIZE];
     int host_fds_to_send[FD_TABLE_SIZE];
     fd_lifetime_t *host_fd_pins[FD_TABLE_SIZE];
-    uint32_t num_fds = 0;
+    pipe_ring_t *rings[FD_TABLE_SIZE];
+    int ring_fds_to_send[FD_TABLE_SIZE];
+    uint32_t num_fds = 0, num_rings = 0;
 
     pthread_mutex_lock(&fd_lock);
     for (int i = 0; i < FD_TABLE_SIZE; i++) {
@@ -327,6 +330,17 @@ int fork_ipc_send_fd_table(int ipc_sock)
         fd_entries[num_fds].nonblock_owned = fd_table[i].nonblock_owned;
         fd_entries[num_fds].path_poll_capable = fd_table[i].path_poll_capable;
         fd_entries[num_fds].seals = fd_table[i].seals;
+
+        /* Referenced so a sibling's close cannot retire the state file before
+         * sendmsg has duplicated it.
+         */
+        fd_entries[num_fds].has_ring = fd_table[i].ring != NULL;
+        if (fd_table[i].ring) {
+            pipe_ring_ref(fd_table[i].ring);
+            rings[num_rings] = fd_table[i].ring;
+            ring_fds_to_send[num_rings++] =
+                pipe_ring_state_fd(fd_table[i].ring);
+        }
         fd_entries[num_fds].ofd_id = fd_table[i].ofd_id;
         fd_entries[num_fds].fasync_owner_type = fd_table[i].fasync_owner_type;
         fd_entries[num_fds].fasync_owner = fd_table[i].fasync_owner;
@@ -345,7 +359,9 @@ int fork_ipc_send_fd_table(int ipc_sock)
         if (fork_ipc_write_all(ipc_sock, fd_entries,
                                num_fds * sizeof(ipc_fd_entry_t)) < 0)
             goto fail;
-        if (fork_ipc_send_fds(ipc_sock, host_fds_to_send, (int) num_fds) < 0) {
+        if (fork_ipc_send_fds(ipc_sock, host_fds_to_send, (int) num_fds) < 0 ||
+            fork_ipc_send_fds(ipc_sock, ring_fds_to_send, (int) num_rings) <
+                0) {
             log_error("clone: failed to send fds via SCM_RIGHTS");
             goto fail;
         }
@@ -362,12 +378,16 @@ int fork_ipc_send_fd_table(int ipc_sock)
     for (uint32_t fi = 0; fi < num_fds; fi++)
         if (host_fd_pins[fi])
             fd_lifetime_release(host_fd_pins[fi]);
+    for (uint32_t ri = 0; ri < num_rings; ri++)
+        pipe_ring_release(rings[ri]);
     return 0;
 
 fail:
     for (uint32_t fi = 0; fi < num_fds; fi++)
         if (host_fd_pins[fi])
             fd_lifetime_release(host_fd_pins[fi]);
+    for (uint32_t ri = 0; ri < num_rings; ri++)
+        pipe_ring_release(rings[ri]);
     return -1;
 }
 
@@ -439,6 +459,35 @@ int fork_ipc_recv_fd_table(int ipc_fd, guest_t *g)
         return -1;
     }
 
+    /* The state file of every pipe ring, in the order the entries name them.
+     * Adopted here, before any slot is built, so each entry below finds its
+     * ring by index and an entry the loop skips still gives its ring back.
+     */
+    pipe_ring_t **rings = calloc(num_fds, sizeof(*rings));
+    int *ring_fds = calloc(num_fds, sizeof(*ring_fds));
+    int num_rings = 0, got_rings = 0;
+    for (uint32_t i = 0; i < num_fds; i++)
+        num_rings += fd_entries[i].has_ring != 0;
+    if (!rings || !ring_fds ||
+        fork_ipc_recv_fds(ipc_fd, ring_fds, num_rings, &got_rings) < 0 ||
+        got_rings != num_rings) {
+        log_error("fork-child: failed to receive pipe ring fds");
+        for (int fi = 0; fi < got_rings; fi++)
+            close(ring_fds[fi]);
+        for (uint32_t fi = 0; fi < num_fds; fi++)
+            close(host_fds[fi]);
+        free(ring_fds);
+        free(rings);
+        free(host_fds);
+        free(fd_entries);
+        return -1;
+    }
+    for (uint32_t i = 0, ri = 0; i < num_fds; i++) {
+        if (fd_entries[i].has_ring)
+            rings[i] = pipe_ring_adopt(ring_fds[ri++]);
+    }
+    free(ring_fds);
+
     /* One row per open file description the parent had, so the slots that
      * aliased it in the parent alias it in the child too. The directory stream
      * and the descriptor it owns are carried alongside the identity because a
@@ -452,13 +501,23 @@ int fork_ipc_recv_fd_table(int ipc_fd, guest_t *g)
 
     for (uint32_t i = 0; i < num_fds; i++) {
         int gfd = fd_entries[i].guest_fd;
-        if (!RANGE_CHECK(gfd, 0, FD_TABLE_SIZE)) {
+
+        /* A ring the parent named and this side could not adopt leaves a host
+         * pipe that holds tokens, not data. The slot stays closed, so the child
+         * reads EBADF from it and not the tokens.
+         */
+        bool ring_lost = fd_entries[i].has_ring && !rings[i];
+        if (!RANGE_CHECK(gfd, 0, FD_TABLE_SIZE) || ring_lost) {
             /* Every other rejection path in this loop closes the received host
              * fd before skipping the entry; a malformed guest_fd from a
              * corrupted fork IPC payload must not be the one path that leaks
              * it.
              */
             close(host_fds[i]);
+            if (rings[i])
+                pipe_ring_release(rings[i]);
+            if (ring_lost && RANGE_CHECK(gfd, 0, 3))
+                fd_mark_closed(gfd);
             continue;
         }
 
@@ -476,6 +535,8 @@ int fork_ipc_recv_fd_table(int ipc_fd, guest_t *g)
 
         if (fd_entries[i].type == FD_STDIO) {
             close(host_fds[i]);
+            if (rings[i])
+                pipe_ring_release(rings[i]);
             fd_table[gfd].linux_flags = fd_entries[i].linux_flags;
             fd_refresh_urandom_bitmap(gfd);
             memcpy(fd_table[gfd].proc_path, fd_entries[i].proc_path,
@@ -496,6 +557,8 @@ int fork_ipc_recv_fd_table(int ipc_fd, guest_t *g)
                 "%d)",
                 gfd, fd_entries[i].type);
             close(host_fds[i]);
+            if (rings[i])
+                pipe_ring_release(rings[i]);
             fd_mark_closed(gfd);
             continue;
         } else {
@@ -532,8 +595,11 @@ int fork_ipc_recv_fd_table(int ipc_fd, guest_t *g)
             fd_alias_spec_t spec =
                 fd_alias_carried(fd_entries[i].foreign_description != 0,
                                  fd_entries[i].nonblock_owned != 0);
-            fd_alloc_alias_at(&spec, gfd, fd_entries[i].type, host_fd, cleanup,
-                              NULL);
+            spec.ring = rings[i];
+            if (fd_alloc_alias_at(&spec, gfd, fd_entries[i].type, host_fd,
+                                  cleanup, NULL) < 0 &&
+                rings[i])
+                pipe_ring_release(rings[i]);
             fd_table[gfd].linux_flags = fd_entries[i].linux_flags;
             fd_refresh_urandom_bitmap(gfd);
             memcpy(fd_table[gfd].proc_path, fd_entries[i].proc_path,
@@ -611,6 +677,7 @@ int fork_ipc_recv_fd_table(int ipc_fd, guest_t *g)
                         fd_table[gfd].type);
     }
 
+    free(rings);
     free(host_fds);
     free(fd_entries);
     return 0;

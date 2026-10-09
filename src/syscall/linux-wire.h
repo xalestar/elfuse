@@ -668,7 +668,13 @@ typedef struct {
      * file and answers for itself. path_intercept_poll_capable decides it.
      */
     bool path_poll_capable;
-    int seals;      /* F_SEAL_* bits (non-zero only for memfd_create fds) */
+    int seals; /* F_SEAL_* bits (non-zero only for memfd_create fds) */
+
+    /* The buffer ring of a pipe in packet mode (syscall/pipe-ring.h), which
+     * then holds the pipe's data while host_fd holds tokens. NULL for a pipe
+     * the host pipe carries whole. The slot owns one reference.
+     */
+    struct pipe_ring *ring;
     bool can_block; /* host read/write on this fd may block (pipe, socket, fifo,
                      * char/tty); false for regular files and directories. Set
                      * once at allocation via fstat so the interruptible wait

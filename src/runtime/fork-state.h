@@ -122,6 +122,12 @@ typedef struct {
      * parent classified it from.
      */
     int32_t foreign_description, nonblock_owned, path_poll_capable;
+
+    /* The slot is a pipe in packet mode. Its ring's state file follows the
+     * table's own descriptors as a second SCM_RIGHTS run, one for each entry
+     * that sets this, in table order.
+     */
+    int32_t has_ring;
     char proc_path[FD_VIRTUAL_PATH_MAX];
 } ipc_fd_entry_t;
 

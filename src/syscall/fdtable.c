@@ -31,6 +31,7 @@
 #include "syscall/linux-wire.h"
 #include "syscall/asyncio.h"
 #include "syscall/internal.h"
+#include "syscall/pipe-ring.h"
 #include "syscall/poll.h"
 
 /* Protects the FD table (fd_alloc, fd_alloc_at, fd_alloc_from, sys_close). File
@@ -357,6 +358,7 @@ static inline void fd_init_entry(int fd,
     fd_table[fd].path_poll_capable =
         fd_alias_pending && fd_alias_spec.path_poll_capable;
     fd_table[fd].seals = 0;
+    fd_table[fd].ring = fd_alias_pending ? fd_alias_spec.ring : NULL;
 
     /* Whether a host read/write can block, so the fast-path and slow-path
      * readers can decide whether to divert into the interruptible wait without
@@ -878,6 +880,7 @@ fd_lifetime_t *fd_mark_closed_unlocked(int fd)
     fd_table[fd].path_poll_capable = false;
     fd_table[fd].linux_flags = 0;
     fd_table[fd].seals = 0;
+    fd_table[fd].ring = NULL;
     fd_table[fd].fasync_owner_type = FASYNC_OWNER_NONE;
     fd_table[fd].fasync_owner = 0;
     fd_bitmap_set_free(fd);
@@ -956,7 +959,7 @@ bool fd_close_regular_relaxed(int fd, int *host_fd_out)
      */
     fd_entry_t *entry = &fd_table[fd];
     if (entry->type != FD_REGULAR || entry->dir || entry->cleanup ||
-        entry->lifetime)
+        entry->lifetime || entry->ring)
         return false;
 
     *host_fd_out = entry->host_fd;
@@ -1168,6 +1171,7 @@ void fd_retire_published(int fd, int host_fd)
     pthread_mutex_lock(&fd_lock);
     bool still_ours =
         fd_table[fd].type != FD_CLOSED && fd_table[fd].host_fd == host_fd;
+    pipe_ring_t *ring = still_ours ? fd_table[fd].ring : NULL;
     fd_lifetime_t *lifetime = still_ours ? fd_mark_closed_unlocked(fd) : NULL;
     pthread_mutex_unlock(&fd_lock);
 
@@ -1175,6 +1179,8 @@ void fd_retire_published(int fd, int host_fd)
         fd_lifetime_release(lifetime);
     else if (still_ours && host_fd >= 0)
         close(host_fd);
+    if (ring)
+        pipe_ring_release(ring);
 }
 
 /* Snapshot an fd entry under fd_lock.
@@ -1198,6 +1204,35 @@ uint64_t fd_current_generation(int guest_fd)
     if (!fd_snapshot(guest_fd, &snap))
         return 0;
     return snap.generation;
+}
+
+pipe_ring_t *fd_pipe_ring_pin(int guest_fd, uint64_t generation)
+{
+    if (!RANGE_CHECK(guest_fd, 0, FD_TABLE_SIZE))
+        return NULL;
+    pthread_mutex_lock(&fd_lock);
+    const fd_entry_t *e = &fd_table[guest_fd];
+    pipe_ring_t *ring =
+        (e->type != FD_CLOSED && e->generation == generation) ? e->ring : NULL;
+    if (ring)
+        pipe_ring_ref(ring);
+    pthread_mutex_unlock(&fd_lock);
+    return ring;
+}
+
+bool fd_pipe_ring_attach(int guest_fd, pipe_ring_t *ring)
+{
+    if (!RANGE_CHECK(guest_fd, 0, FD_TABLE_SIZE))
+        return false;
+    pthread_mutex_lock(&fd_lock);
+    fd_entry_t *e = &fd_table[guest_fd];
+    bool open = e->type != FD_CLOSED && !e->ring;
+    if (open) {
+        pipe_ring_ref(ring);
+        e->ring = ring;
+    }
+    pthread_mutex_unlock(&fd_lock);
+    return open;
 }
 
 int fd_snapshot_and_dup(int guest_fd, fd_entry_t *out)
@@ -1471,6 +1506,8 @@ void fd_cleanup_entry(int guest_fd, const fd_entry_t *snap)
         fd_lifetime_release(snap->lifetime);
     else if (!stream_owns_host_fd && snap->type != FD_STDIO)
         close(snap->host_fd);
+    if (snap->ring)
+        pipe_ring_release(snap->ring);
 
     /* Last: the slot's own reference on the stream, and with it the descriptor
      * when no getdents64 or pin still holds one.

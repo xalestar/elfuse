@@ -143,9 +143,9 @@
  *   log_mutex (debug/log.c)          rosettad_path_lock (rosetta.c)
  *   nl_lock (netlink.c)              session_lock (proc-identity.c)
  *   overlay_lock (chown-overlay.c)   shm_dir_lock (procemu.c)
- *   proc_scratch_lock (procemu.c)    shm_lock (sysvipc.c)
- *   removed_overlay_lock (fs.c)      syscpu_dir_lock (procemu.c)
- *                                    sysinfo_lock (sys.c)
+ *   pipe_ring_lock (pipe-ring.c)     shm_lock (sysvipc.c)
+ *   proc_scratch_lock (procemu.c)    syscpu_dir_lock (procemu.c)
+ *   removed_overlay_lock (fs.c)      sysinfo_lock (sys.c)
  *                                    sysroot_lock (proc-state.c)
  *                                    usb_lock (runtime/usb-sysfs.c)
  *                                    usbdev_loop_lock (usbdev.c)
@@ -272,6 +272,12 @@ typedef struct {
      */
     int src_guest_fd;
     uint64_t src_generation;
+
+    /* The source's pipe ring, as a reference the new slot takes over. The
+     * caller got it from fd_pipe_ring_pin, which is why no constructor fills
+     * it, and still owns it when the allocation fails.
+     */
+    struct pipe_ring *ring;
 } fd_alias_spec_t;
 
 /* A full alias: same description, same identity, same status flags. dup(2),
@@ -482,6 +488,14 @@ bool fd_snapshot(int guest_fd, fd_entry_t *out);
  * separate window -- see host_fd_ref_open_io_gen() for that.
  */
 uint64_t fd_current_generation(int guest_fd);
+
+/* The pipe ring of a guest fd, referenced for the caller, or NULL when the slot
+ * has none or no longer holds the file `generation` was read from.
+ */
+struct pipe_ring *fd_pipe_ring_pin(int guest_fd, uint64_t generation);
+
+/* Give an open slot a reference on `ring`. False when the slot is closed. */
+bool fd_pipe_ring_attach(int guest_fd, struct pipe_ring *ring);
 
 /* Snapshot an fd entry AND dup its host fd in a single fd_lock critical
  * section. Eliminates the TOCTOU window between reading the type/metadata and

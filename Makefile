@@ -51,6 +51,7 @@ SRCS := \
     syscall/fs-stat.c \
     syscall/fs-xattr.c \
     syscall/io.c \
+    syscall/pipe-ring.c \
     syscall/poll.c \
     syscall/wakeup-pipe.c \
     syscall/fd.c \
